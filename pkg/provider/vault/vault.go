@@ -760,7 +760,11 @@ func (v *client) GetSecret(ctx context.Context, ref esv1beta1.ExternalSecretData
 			return nil, err
 		}
 	}
-
+	// Replace symlinks
+	data, err = v.resolveSymlink(ctx, data)
+	if err != nil {
+		return nil, err
+	}
 	// Return nil if secret value is null
 	if data == nil {
 		return nil, esv1beta1.NoSecretError{}
