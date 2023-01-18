@@ -9,7 +9,11 @@ import (
 const vaultSymlinkPattern = `vault://(?P<Path>.*)#(?P<Secret>\w+)(@(?P<Version>.*)?)?`
 
 func isSymlink(secret any) bool {
-	return strings.HasPrefix(secret.(string), "vault://")
+	if s, ok := secret.(string); ok {
+		return strings.HasPrefix(s, "vault://")
+	}
+
+	return false
 }
 
 func extractSymlinkParts(secret any) (paramsMap map[string]string) {
