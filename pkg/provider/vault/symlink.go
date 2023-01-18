@@ -6,12 +6,14 @@ import (
 	"strings"
 )
 
+const vaultSymlinkPattern = `vault://(?P<Path>.*)#(?P<Secret>\w+)(@(?P<Version>.*)?)?`
+
 func isSymlink(secret any) bool {
 	return strings.HasPrefix(secret.(string), "vault://")
 }
 
 func extractSymlinkParts(secret any) (paramsMap map[string]string) {
-	r := regexp.MustCompile(`vault://(?P<Path>.*)#(?P<Secret>\w+)(@(?P<Version>.*)?)?`)
+	r := regexp.MustCompile(vaultSymlinkPattern)
 	match := r.FindStringSubmatch(secret.(string))
 	paramsMap = make(map[string]string)
 
