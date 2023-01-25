@@ -6,16 +6,28 @@ import (
 	"strings"
 )
 
-const vaultSymlinkPattern = `vault://(?P<Path>.*)#(?P<Secret>\w+)(@(?P<Version>.*)?)?`
+const (
+  // Symlink must start with the prefix vault://
+	vaultSymlink        = `vault://`
+  // Path can be anything and matches the last # as a separator of key
+	vaultSymlinkPath    = `(?P<Path>.*)#`
+  // Key can be any alphanumeric character and stops with the first @
+	vaultSymlinkSecret  = `(?P<Secret>\w+)`
+  // Version is optional and will match any number after @
+	vaultSymlinkVersion = `(@(?P<Version>\d+)?)?`
+	vaultSymlinkPattern = vaultSymlink + vaultSymlinkPath + vaultSymlinkSecret + vaultSymlinkVersion
+)
 
+// isSymlink tests if secret can be converted to string and if it matches the symlink pattern
 func isSymlink(secret any) bool {
 	if s, ok := secret.(string); ok {
-		return strings.HasPrefix(s, "vault://")
+		return strings.HasPrefix(s, vaultSymlink)
 	}
 
 	return false
 }
 
+// extractSymlinkParts extract capture group items of regex to a map
 func extractSymlinkParts(secret any) (paramsMap map[string]string) {
 	r := regexp.MustCompile(vaultSymlinkPattern)
 	match := r.FindStringSubmatch(secret.(string))
@@ -30,6 +42,7 @@ func extractSymlinkParts(secret any) (paramsMap map[string]string) {
 	return paramsMap
 }
 
+// resolveSymlink test if the data passed has symlinks and resolve them.
 func (v *client) resolveSymlink(ctx context.Context, data map[string]any) (map[string]any, error) {
 	for key, secret := range data {
 		for isSymlink(secret) {

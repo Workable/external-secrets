@@ -1,8 +1,9 @@
 package vault
 
 import (
-	"github.com/google/go-cmp/cmp"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestIsSymlink(t *testing.T) {
@@ -31,21 +32,21 @@ func TestIsSymlink(t *testing.T) {
 
 func TestExtractSymlinkParts(t *testing.T) {
 	cases := map[string]struct {
-		pattern        string
-		expectedPath   string
-		expectedSecret string
-    expectedVersion string
+		pattern         string
+		expectedPath    string
+		expectedSecret  string
+		expectedVersion string
 	}{
 		"ShouldExtractPathAndSecret": {
-			pattern:        "vault://test#KEY",
-			expectedPath:   "test",
-			expectedSecret: "KEY",
+			pattern:         "vault://test#KEY",
+			expectedPath:    "test",
+			expectedSecret:  "KEY",
 			expectedVersion: "",
 		},
 		"ShouldExtractPathAndSecretAndVersion": {
-			pattern:        "vault://test#KEY@21",
-			expectedPath:   "test",
-			expectedSecret: "KEY",
+			pattern:         "vault://test#KEY@21",
+			expectedPath:    "test",
+			expectedSecret:  "KEY",
 			expectedVersion: "21",
 		},
 	}
