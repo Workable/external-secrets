@@ -203,10 +203,10 @@ jobs:
         run: |
           if [[ "${{ inputs.manual_build_branch }}" == "" ]]; then
             ACTUAL_BRANCH=${{ github.ref_name }}
-            echo "ref=${ACTUAL_BRANCH#workable_feature/*}" >> $GITHUB_OUTPUT
           else
-            echo "ref=${{ inputs.manual_build_branch }}" >> $GITHUB_OUTPUT
+            "ACTUAL_BRANCH=${{ inputs.manual_build_branch }}"
           fi
+          echo "ref=${ACTUAL_BRANCH#workable_feature/*}" >> $GITHUB_OUTPUT
   
   set-tag:
     if: github.repository == 'Workable/external-secrets'
