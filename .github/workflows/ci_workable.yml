@@ -1,0 +1,269 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request: {}
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Set the image tag manually (will be created dynamically if not set)"
+        default: ""
+        required: false
+      manual_build_branch:
+        description: "The branch the image should be built from"
+        type: string
+        default: "master"
+        required: true
+      push_to_stg:
+        description: "Build and push image to staging GCR"
+        type: boolean
+        default: false
+        required: true
+      push_to_prd:
+        description: "Build and push image to production GCR"
+        type: boolean
+        default: false
+        required: true
+  
+
+env:
+  # Common versions
+  GOLANGCI_VERSION: 'v1.49.0'
+  KUBERNETES_VERSION: '1.24.x'
+
+  # Sonar
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+jobs:
+  detect-noop:
+    runs-on: ubuntu-latest
+    outputs:
+      noop: ${{ steps.noop.outputs.should_skip }}
+    steps:
+      - name: Detect No-op Changes
+        id: noop
+        uses: fkirc/skip-duplicate-actions@v5.3.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          paths_ignore: '["**.md", "**.png", "**.jpg"]'
+          do_not_skip: '["workflow_dispatch", "schedule", "push"]'
+          concurrent_skipping: false
+
+  lint:
+    runs-on: ubuntu-latest
+    needs: detect-noop
+    if: needs.detect-noop.outputs.noop != 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version-file: "go.mod"
+
+      - name: Find the Go Cache
+        id: go
+        run: |
+          echo "::set-output name=build-cache::$(go env GOCACHE)"
+          echo "::set-output name=mod-cache::$(go env GOMODCACHE)"
+
+      - name: Cache the Go Build Cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.go.outputs.build-cache }}
+          key: ${{ runner.os }}-build-${{ github.sha }}-${{ hashFiles('**/go.sum') }}
+
+      - name: Cache Go Dependencies
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.go.outputs.mod-cache }}
+          key: ${{ runner.os }}-mod-${{ github.sha }}-${{ hashFiles('**/go.sum') }}
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: ${{ env.GOLANGCI_VERSION }}
+          skip-pkg-cache: true
+          skip-build-cache: true
+
+  check-diff:
+    runs-on: ubuntu-latest
+    needs: detect-noop
+    if: needs.detect-noop.outputs.noop != 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure Git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version-file: "go.mod"
+
+      - name: Find the Go Cache
+        id: go
+        run: |
+          echo "::set-output name=build-cache::$(go env GOCACHE)"
+          echo "::set-output name=mod-cache::$(go env GOMODCACHE)"
+
+      - name: Cache the Go Build Cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.go.outputs.build-cache }}
+          key: ${{ runner.os }}-build-${{ github.sha }}-${{ hashFiles('**/go.sum') }}
+
+      - name: Cache Go Dependencies
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.go.outputs.mod-cache }}
+          key: ${{ runner.os }}-mod-${{ github.sha }}-${{ hashFiles('**/go.sum') }}
+
+      # Check DIff also runs Reviewable which needs golangci-lint installed
+      - name: Check Diff
+        run: |
+          wget -O- -nv https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s ${{ env.GOLANGCI_VERSION }}
+          export PATH=$PATH:./bin
+          make check-diff
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    needs: detect-noop
+    if: needs.detect-noop.outputs.noop != 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Fetch History
+        run: git fetch --prune --unshallow
+
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version-file: "go.mod"
+
+      - name: Find the Go Cache
+        id: go
+        run: |
+          echo "::set-output name=build-cache::$(go env GOCACHE)"
+          echo "::set-output name=mod-cache::$(go env GOMODCACHE)"
+
+      - name: Cache the Go Build Cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.go.outputs.build-cache }}
+          key: ${{ runner.os }}-build-${{ github.sha }}-${{ hashFiles('**/go.sum') }}
+
+      - name: Cache Go Dependencies
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.go.outputs.mod-cache }}
+          key: ${{ runner.os }}-mod-${{ github.sha }}-${{ hashFiles('**/go.sum') }}
+
+      - name: Add setup-envtest
+        run: |
+          go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+          setup-envtest use ${{env.KUBERNETES_VERSION}} -p env --os $(go env GOOS) --arch $(go env GOARCH)
+
+      - name: Cache envtest binaries
+        uses: actions/cache@v3
+        with:
+          path: /home/runner/.local/share/kubebuilder-envtest/
+          key: ${{ runner.os }}-kubebuilder-${{env.KUBERNETES_VERSION}}
+
+      - name: Run Unit Tests
+        run: |
+          export KUBEBUILDER_ATTACH_CONTROL_PLANE_OUTPUT=true
+          source <(setup-envtest use ${{env.KUBERNETES_VERSION}} -p env --os $(go env GOOS) --arch $(go env GOARCH))
+          make test
+
+  set-ref:
+    name: retrieve the actual build branch
+    needs:
+      - unit-tests
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.set-branch.outputs.ref }}
+    steps:
+      - name: set the build branch
+        id: set-branch
+        shell: bash
+        run: |
+          if [[ "${{ inputs.manual_build_branch }}" == "" ]]; then
+            echo "ref=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "ref=${{ inputs.manual_build_branch }}" >> $GITHUB_OUTPUT
+          fi
+  
+  set-tag:
+    name: set the image tag
+    needs:
+      - set-ref
+    uses: Workable/external-secrets/.github/workflows/common_image_tagging_workflow.yaml@main
+    with:
+      push_to_prd: ${{ inputs.push_to_prd == true }}
+      tag: ${{ inputs.tag }}
+      ref: ${{ needs.set-ref.outputs.ref }}
+
+  build-and-push-docker-image:
+    environment: Workable
+    name: Build and push docker image
+    needs:
+      - set-ref
+      - set-tag
+    uses: Workable/external-secrets/.github/workflows/common_build_and_push_to_gcr.yaml@main
+    with:
+      dockerfile: Dockerfile_workable
+      build_branch: ${{ needs.set-ref.outputs.ref }}
+      stg_image_build: ${{ inputs.push_to_stg == true || github.event_name == 'push' }}
+      prd_image_build: ${{ inputs.push_to_prd == true }}
+      image_name: external-secrets
+      image_tag: ${{ needs.set-tag.outputs.tag }}
+      no_cache: false
+    secrets:
+      SRE_GCR_SA: ${{ secrets.SRE_GCR_SA }}
+      STAGING_GCR_SA: ${{ secrets.STAGING_GCR_SA }}
+      PRODUCTION_GCR_SA: ${{ secrets.PRODUCTION_GCR_SA }}
+
+  send-slack-success:
+    environment: Workable
+    name: Send Slack success message
+    if: success()
+    needs:
+      - build-and-push-docker-image
+    uses: Workable/external-secrets/.github/workflows/common_image_slack_notification.yaml@main
+    with:
+      image_name: external-secrets
+      image_tag: ${{ needs.set-tag.outputs.tag }}
+      slack_channel: ${{ vars.SLACK_CHANNEL }}
+      stg_image_build: ${{ inputs.push_to_stg == true || github.event_name == 'push' }}
+      prd_image_build: ${{ inputs.push_to_prd == true }}
+      success: true
+    secrets:
+      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+
+  send-slack-failure:
+    environment: Workable
+    name: Send Slack failure message
+    if: failure()
+    needs:
+      - build-and-push-docker-image   
+    uses: Workable/external-secrets/.github/workflows/common_image_slack_notification.yaml@main
+    with:
+      image_name: external-secrets
+      image_tag: ${{ needs.set-tag.outputs.tag }}
+      slack_channel: ${{ vars.SLACK_CHANNEL }}
+      stg_image_build: ${{ inputs.push_to_stg == true || github.event_name == 'push' }}
+      prd_image_build: ${{ inputs.push_to_prd == true }}
+      success: false
+    secrets:
+      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
