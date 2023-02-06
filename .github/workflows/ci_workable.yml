@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - workable_feature/*
   pull_request: {}
   workflow_dispatch:
     inputs:
@@ -201,7 +202,8 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ inputs.manual_build_branch }}" == "" ]]; then
-            echo "ref=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            ACTUAL_BRANCH=${{ github.ref_name }}
+            echo "ref=${ACTUAL_BRANCH#workable_feature/*}" >> $GITHUB_OUTPUT
           else
             echo "ref=${{ inputs.manual_build_branch }}" >> $GITHUB_OUTPUT
           fi
