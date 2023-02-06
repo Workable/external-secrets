@@ -221,7 +221,8 @@ jobs:
 
   build-and-push-docker-image:
     if: github.repository == 'Workable/external-secrets'
-    environment: Workable
+    environment:
+      name: Workable
     name: Build and push docker image
     needs:
       - set-ref
@@ -241,7 +242,8 @@ jobs:
       PRODUCTION_GCR_SA: ${{ secrets.PRODUCTION_GCR_SA }}
 
   send-slack-success:
-    environment: Workable
+    environment:
+      name: Workable
     name: Send Slack success message
     if: success() && github.repository == 'Workable/external-secrets'
     needs:
@@ -258,7 +260,8 @@ jobs:
       SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
   send-slack-failure:
-    environment: Workable
+    environment:
+      name: Workable
     name: Send Slack failure message
     if: failure() && github.repository == 'Workable/external-secrets'
     needs:
