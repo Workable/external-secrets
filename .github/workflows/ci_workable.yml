@@ -38,6 +38,7 @@ env:
 
 jobs:
   detect-noop:
+    if: github.repository == 'Workable/external-secrets'
     runs-on: ubuntu-latest
     outputs:
       noop: ${{ steps.noop.outputs.should_skip }}
@@ -54,7 +55,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     needs: detect-noop
-    if: needs.detect-noop.outputs.noop != 'true'
+    if: needs.detect-noop.outputs.noop != 'true' && github.repository == 'Workable/external-secrets'
 
     steps:
       - name: Checkout
@@ -93,7 +94,7 @@ jobs:
   check-diff:
     runs-on: ubuntu-latest
     needs: detect-noop
-    if: needs.detect-noop.outputs.noop != 'true'
+    if: needs.detect-noop.outputs.noop != 'true' && github.repository == 'Workable/external-secrets'
 
     steps:
       - name: Checkout
@@ -137,7 +138,7 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     needs: detect-noop
-    if: needs.detect-noop.outputs.noop != 'true'
+    if: needs.detect-noop.outputs.noop != 'true' && github.repository == 'Workable/external-secrets'
 
     steps:
       - name: Checkout
@@ -187,6 +188,7 @@ jobs:
           make test
 
   set-ref:
+    if: github.repository == 'Workable/external-secrets'
     name: retrieve the actual build branch
     needs:
       - unit-tests
@@ -205,6 +207,7 @@ jobs:
           fi
   
   set-tag:
+    if: github.repository == 'Workable/external-secrets'
     name: set the image tag
     needs:
       - set-ref
@@ -215,6 +218,7 @@ jobs:
       ref: ${{ needs.set-ref.outputs.ref }}
 
   build-and-push-docker-image:
+    if: github.repository == 'Workable/external-secrets'
     environment: Workable
     name: Build and push docker image
     needs:
@@ -237,7 +241,7 @@ jobs:
   send-slack-success:
     environment: Workable
     name: Send Slack success message
-    if: success()
+    if: success() && github.repository == 'Workable/external-secrets'
     needs:
       - build-and-push-docker-image
     uses: Workable/external-secrets/.github/workflows/common_image_slack_notification.yaml@main
@@ -254,7 +258,7 @@ jobs:
   send-slack-failure:
     environment: Workable
     name: Send Slack failure message
-    if: failure()
+    if: failure() && github.repository == 'Workable/external-secrets'
     needs:
       - build-and-push-docker-image   
     uses: Workable/external-secrets/.github/workflows/common_image_slack_notification.yaml@main
