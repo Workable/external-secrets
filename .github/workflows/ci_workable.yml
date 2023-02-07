@@ -195,7 +195,8 @@ jobs:
       - unit-tests
     runs-on: ubuntu-latest
     outputs:
-      ref: ${{ steps.set-branch.outputs.ref }}
+      ref-for-name: ${{ steps.set-branch.outputs.ref-for-name }}
+      ref-for-checkout: ${{ steps.set-branch.outputs.ref-for-checkout }}
     steps:
       - name: set the build branch
         id: set-branch
@@ -206,7 +207,8 @@ jobs:
           else
             "ACTUAL_BRANCH=${{ inputs.manual_build_branch }}"
           fi
-          echo "ref=${ACTUAL_BRANCH#workable_feature/*}" >> $GITHUB_OUTPUT
+          echo "ref-for-name=${ACTUAL_BRANCH#workable_feature/*}" >> $GITHUB_OUTPUT
+          echo "ref-for-checkout=$ACTUAL_BRANCH" >> $GITHUB_OUTPUT
   
   set-tag:
     if: github.repository == 'Workable/external-secrets'
@@ -217,7 +219,7 @@ jobs:
     with:
       push_to_prd: ${{ inputs.push_to_prd == true }}
       tag: ${{ inputs.tag }}
-      ref: ${{ needs.set-ref.outputs.ref }}
+      ref: ${{ needs.set-ref.outputs.ref-for-name }}
 
   build-and-push-docker-image:
     if: github.repository == 'Workable/external-secrets'
@@ -230,7 +232,7 @@ jobs:
     uses: Workable/external-secrets/.github/workflows/common_build_and_push_to_gcr.yaml@main
     with:
       dockerfile: Dockerfile_workable
-      build_branch: ${{ needs.set-ref.outputs.ref }}
+      build_branch: ${{ needs.set-ref.outputs.ref-for-checkout }}
       stg_image_build: ${{ inputs.push_to_stg == true || github.event_name == 'push' }}
       prd_image_build: ${{ inputs.push_to_prd == true }}
       image_name: external-secrets
