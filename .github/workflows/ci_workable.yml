@@ -222,7 +222,6 @@ jobs:
       ref: ${{ needs.set-ref.outputs.ref-for-name }}
 
   build-and-push-docker-image:
-    environment: Workable
     name: Build and push docker image
     if: github.repository == 'Workable/external-secrets'
     uses: Workable/external-secrets/.github/workflows/common_build_and_push_to_gcr.yaml@main
@@ -241,6 +240,7 @@ jobs:
       SRE_GCR_SA: ${{ secrets.SRE_GCR_SA }}
       STAGING_GCR_SA: ${{ secrets.STAGING_GCR_SA }}
       PRODUCTION_GCR_SA: ${{ secrets.PRODUCTION_GCR_SA }}
+    environment: Workable
 
   send-slack-success:
     name: Send Slack success message
