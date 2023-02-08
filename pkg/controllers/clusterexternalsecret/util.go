@@ -27,7 +27,7 @@ func NewClusterExternalSecretCondition(condType esv1beta1.ClusterExternalSecretC
 	}
 }
 
-// GetExternalSecretCondition returns the condition with the provided type.
+// GetExternalSecretCondition returns the condition with the provided type. test comment
 func GetClusterExternalSecretCondition(status esv1beta1.ClusterExternalSecretStatus, condType esv1beta1.ClusterExternalSecretConditionType) *esv1beta1.ClusterExternalSecretStatusCondition {
 	for i := range status.Conditions {
 		c := status.Conditions[i]
