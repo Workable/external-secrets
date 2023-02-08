@@ -244,8 +244,6 @@ jobs:
       PRODUCTION_GCR_SA: ${{ secrets.PRODUCTION_GCR_SA }}
 
   send-slack-success:
-    environment:
-      name: Workable
     name: Send Slack success message
     if: success() && github.repository == 'Workable/external-secrets'
     needs:
@@ -258,6 +256,8 @@ jobs:
       stg_image_build: ${{ inputs.push_to_stg == true || github.event_name == 'push' }}
       prd_image_build: ${{ inputs.push_to_prd == true }}
       success: true
+    environment:
+      name: Workable
     secrets:
       SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
