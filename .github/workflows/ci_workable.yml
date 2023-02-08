@@ -233,8 +233,7 @@ jobs:
       image_name: external-secrets
       image_tag: ${{ needs.set-tag.outputs.tag }}
       no_cache: false
-    environment:
-      name: Workable
+    environment: Workable
     needs:
       - set-ref
       - set-tag
@@ -256,8 +255,7 @@ jobs:
       stg_image_build: ${{ inputs.push_to_stg == true || github.event_name == 'push' }}
       prd_image_build: ${{ inputs.push_to_prd == true }}
       success: true
-    environment:
-      name: Workable
+    environment: Workable
     secrets:
       SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
