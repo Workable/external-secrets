@@ -222,6 +222,7 @@ jobs:
       ref: ${{ needs.set-ref.outputs.ref-for-name }}
 
   build-and-push-docker-image:
+    name: Build and push docker image
     if: github.repository == 'Workable/external-secrets'
     uses: Workable/external-secrets/.github/workflows/common_build_and_push_to_gcr.yaml@main
     with:
@@ -234,7 +235,6 @@ jobs:
       no_cache: false
     environment:
       name: Workable
-    name: Build and push docker image
     needs:
       - set-ref
       - set-tag
