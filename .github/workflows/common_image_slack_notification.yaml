@@ -3,6 +3,10 @@ name: Build and push images to sre, staging and production GCR
 on:
   workflow_call:
     inputs:
+      environment:
+        description: The environment this reusable workflow will run on
+        type: string
+        required: true
       image_name:
         description: the name of the image to be built
         required: true
@@ -56,6 +60,7 @@ jobs:
 
   send-slack-notification:
     name: compose msg and send slack notification
+    environment: ${{ inputs.environment }}
     runs-on: ubuntu-latest
 
     steps:

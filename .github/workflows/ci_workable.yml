@@ -222,15 +222,15 @@ jobs:
       ref: ${{ needs.set-ref.outputs.ref-for-name }}
 
   build-and-push-docker-image:
+    name: Build and push docker image
     if: github.repository == 'Workable/external-secrets'
-    environment:
-      name: Workable
     name: Build and push docker image
     needs:
       - set-ref
       - set-tag
     uses: Workable/external-secrets/.github/workflows/common_build_and_push_to_gcr.yaml@main
     with:
+      environment: Workable
       dockerfile: Dockerfile_workable
       build_branch: ${{ needs.set-ref.outputs.ref-for-checkout }}
       stg_image_build: ${{ inputs.push_to_stg == true || github.event_name == 'push' }}
@@ -244,14 +244,13 @@ jobs:
       PRODUCTION_GCR_SA: ${{ secrets.PRODUCTION_GCR_SA }}
 
   send-slack-success:
-    environment:
-      name: Workable
     name: Send Slack success message
     if: success() && github.repository == 'Workable/external-secrets'
     needs:
       - build-and-push-docker-image
     uses: Workable/external-secrets/.github/workflows/common_image_slack_notification.yaml@main
     with:
+      environment: Workable
       image_name: external-secrets
       image_tag: ${{ needs.set-tag.outputs.tag }}
       slack_channel: ${{ vars.SLACK_CHANNEL }}
@@ -262,14 +261,13 @@ jobs:
       SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
   send-slack-failure:
-    environment:
-      name: Workable
     name: Send Slack failure message
     if: failure() && github.repository == 'Workable/external-secrets'
     needs:
       - build-and-push-docker-image   
     uses: Workable/external-secrets/.github/workflows/common_image_slack_notification.yaml@main
     with:
+      environment: Workable
       image_name: external-secrets
       image_tag: ${{ needs.set-tag.outputs.tag }}
       slack_channel: ${{ vars.SLACK_CHANNEL }}
