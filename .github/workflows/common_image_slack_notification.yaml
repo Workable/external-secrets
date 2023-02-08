@@ -1,0 +1,108 @@
+name: Build and push images to sre, staging and production GCR
+
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        description: the name of the image to be built
+        required: true
+        type: string
+      image_tag:
+       description: the tag of the image to be built
+       required: true
+       type: string
+      slack_channel:
+        description: slack channel for notification upon success/failure to be sent to
+        required: false
+        type: string
+        default: aws-config
+      sre_image_build:
+        description: whether to build the sre image
+        required: false
+        type: boolean
+        default: false
+      stg_image_build:
+        description: whether to build the staging image
+        required: true
+        type: boolean
+        default: false
+      prd_image_build:
+        description: whether to build the production image
+        required: true
+        type: boolean
+        default: false
+      success:
+        description: whether all previous steps succeeded
+        required: true
+        type: boolean
+
+    secrets:
+      SLACK_WEBHOOK:
+        required: true
+
+env: 
+  SRE_REGISTRY: gcr.io/sre-artifacts-20e4/
+  STG_REGISTRY: gcr.io/staging-artifacts-786a/
+  PRD_REGISTRY: gcr.io/production-artifacts-0b0d/
+  SLACK_CHANNEL: aws-config
+  SLACK_USERNAME: SRE Image Builder
+  SLACK_ICON_EMOJI_SUCCESS: ':shamrock:'
+  SLACK_ICON_EMOJI_FAILURE: ':fail:'
+  SLACK_COLOR_FAILURE: '#FF0000'
+  SLACK_COLOR_SUCCESS: '#00CC00'
+  SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+
+jobs:
+
+  send-slack-notification:
+    name: compose msg and send slack notification
+    runs-on: ubuntu-latest
+
+    steps:
+      
+    - name: prepare image list
+      id: prepare-image-list
+      uses: actions/github-script@v6
+      with:
+        script: |
+          let imageList = ''
+          let image = '${{ inputs.image_name }}'+':'+'${{ inputs.image_tag }}'
+          let sreImage = '${{ env.SRE_REGISTRY }}' + image
+          let stgImage = '${{ env.STG_REGISTRY }}' + image
+          let prdImage = '${{ env.PRD_REGISTRY }}' + image
+          if (${{ inputs.sre_image_build }}) {
+            imageList += sreImage + " ";
+          }
+          if (${{ inputs.stg_image_build }}) {
+            imageList += stgImage + " ";
+          }
+          if (${{ inputs.prd_image_build }}) {
+            imageList += prdImage;
+          }
+          console.log(imageList.trim());
+          core.setOutput('image_list', imageList);
+
+
+    - name: send slack success message
+      if: inputs.success
+      uses: rtCamp/action-slack-notify@v2
+      env:
+        SLACK_USERNAME: ${{ env.SLACK_USERNAME }}
+        SLACK_ICON: ${{ env.SLACK_ICON }}
+        SLACK_ICON_EMOJI: ${{ env.SLACK_ICON_EMOJI_SUCCESS }}
+        SLACK_COLOR:  ${{ env.SLACK_COLOR_SUCCESS }}
+        SLACK_CHANNEL: ${{ inputs.slack_channel }}
+        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        SLACK_MESSAGE: Image(s) ${{ steps.prepare-image-list.outputs.image_list }} built/pushed successfully
+
+    - name: send slack failure message
+      if: ${{ !inputs.success }}
+      uses: rtCamp/action-slack-notify@v2
+      env:
+        SLACK_USERNAME: ${{ env.SLACK_USERNAME }}
+        SLACK_ICON: ${{ env.SLACK_ICON }}
+        SLACK_ICON_EMOJI: ${{ env.SLACK_ICON_EMOJI_FAILURE }}
+        SLACK_COLOR: ${{ env.SLACK_COLOR_FAILURE }}
+        SLACK_CHANNEL: ${{ inputs.slack_channel }}
+        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        SLACK_MESSAGE: Image(s) ${{ steps.prepare-image-list.outputs.image_list }} FAILED to be built/pushed

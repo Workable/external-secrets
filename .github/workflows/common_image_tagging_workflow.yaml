@@ -1,0 +1,50 @@
+name: Image tagging workflow
+
+on:
+  workflow_call:
+    inputs:
+      push_to_prd:
+        description: "Whether the image will be pushed to production"
+        type: boolean
+        default: false
+        required: true
+      tag:
+        description: "Set the image tag manually (will be created dynamically if not set)"
+        type: string
+        default: ""
+        required: false
+      ref:
+        description: "The branch were the image will be built from"
+        type: string
+        required: true
+    outputs:
+      tag:
+        description: "The tag of the image to be built / pushed"
+        value: ${{ jobs.validate-inputs-and-set-tag.outputs.tag }}
+
+jobs:
+  validate-inputs-and-set-tag:
+    name: validate whether the run should continue and set required output values
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.set-tag.outputs.tag }}
+    
+    steps:
+      - name: validate inputs
+        if: inputs.push_to_prd && ( inputs.tag == '' || inputs.ref != 'master' )
+        shell: bash
+        run: |
+          echo "Images can be pushed to production GCR only if the build branch is 'master' and the image tag is provided manually"
+          exit 1
+
+      - name: set image tag
+        id: set-tag
+        shell: bash
+        run: |
+          if [[ "${{ inputs.tag }}" == "" ]]; then
+            FINAL_TAG=${{ inputs.ref }}-${GITHUB_SHA::7}-ts.$(date +%s)
+          else
+            FINAL_TAG=${{ inputs.tag }}
+          fi
+          echo "Using tag: $FINAL_TAG"
+          echo "tag=$FINAL_TAG" >> $GITHUB_OUTPUT

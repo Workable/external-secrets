@@ -1,0 +1,243 @@
+name: Build and push images to sre, staging and production GCR
+
+on:
+  workflow_call:
+    inputs:
+      build_branch:
+        description: the branch of the project to build the image(s) from
+        required: true
+        type: string
+        default: "master"
+      context:
+        description: the docker context from where the image will be built
+        required: false
+        type: string
+        default: "."
+      dockerfile:
+        description: path to dockerfile
+        required: false
+        type: string
+        default: Dockerfile
+      build_args:
+        description: a list of env vars as build-args for docker-build
+        required: false
+        type: string
+      no_cache:
+        description: do not use cache when building the image
+        required: false
+        type: boolean
+        default: false
+      image_name:
+        description: the name of the image to be built
+        required: true
+        type: string
+      image_tag:
+       description: the tag of the image to be built
+       required: true
+       type: string
+      sre_image_build:
+        description: whether to build the sre image
+        required: false
+        type: boolean
+        default: false
+      sre_image_tag_stable:
+        description: whether to tag the sre image as stable
+        required: false
+        type: boolean
+        default: false
+      sre_image_tag_latest:
+        description: whether to tag the sre image as latest
+        required: false
+        type: boolean
+        default: false
+      stg_image_build:
+        description: whether to build the staging image
+        required: true
+        type: boolean
+        default: false
+      stg_image_tag_stable:
+        description: whether to tag the staging image as stable
+        required: false
+        type: boolean
+        default: false
+      stg_image_tag_latest:
+        description: whether to tag the staging image as latest
+        required: false
+        type: boolean
+        default: false
+      prd_image_build:
+        description: whether to build the production image
+        required: true
+        type: boolean
+        default: false
+      prd_image_tag_stable:
+        description: whether to tag the production image as stable
+        required: false
+        type: boolean
+        default: false
+      prd_image_tag_latest:
+        description: whether to tag the production image as latest
+        required: false
+        type: boolean
+        default: false
+
+    secrets:
+      SRE_GCR_SA:
+        required: false
+      STAGING_GCR_SA:
+        required: false
+      PRODUCTION_GCR_SA:
+        required: false
+
+env:
+  REPOSITORY: gcr.io
+  LOCAL_IMAGE: localhost:5000/name/app:latest
+  SRE_GCR_PROJECT: sre-artifacts-20e4
+  STAGING_GCR_PROJECT: staging-artifacts-786a
+  PRODUCTION_GCR_PROJECT: production-artifacts-0b0d
+
+jobs:
+
+  build_images:
+    name: build image(s)
+    if: inputs.sre_image_build == true || inputs.stg_image_build == true || inputs.prd_image_build == true
+    runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+
+    steps:
+      - name: checkout the project
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ inputs.build_branch }}
+
+
+      - name: set up gcloud
+        uses: google-github-actions/setup-gcloud@v0.6.0
+      
+      - name: set up docker buildx
+        uses: docker/setup-buildx-action@v2
+        with:
+          driver-opts: network=host
+
+      - name: login to staging gcr (needed since we build from base/staging-gcr)
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REPOSITORY }}
+          username: _json_key
+          password: ${{ secrets.STAGING_GCR_SA }}
+      
+      - name: build and push to local registry
+        uses: docker/build-push-action@v3
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.context }}/${{ inputs.dockerfile }}
+          no-cache: ${{ inputs.no_cache }}
+          build-args: ${{ inputs.build_args }}
+          push: true
+          tags: ${{ env.LOCAL_IMAGE }}
+          provenance: false
+
+      ##########################################################################
+      ### IMAGE DISTRIBUTION
+      ##########################################################################
+
+      ### DISTRIBUTION OF STAGING IMAGES
+      - name: create images' list for pushing to staging gcr
+        uses: actions/github-script@v6
+        if: inputs.stg_image_build == true
+        id: set-staging-images
+        with:
+          script: |
+            let stgBase = '${{ env.REPOSITORY }}'+'/'+'${{ env.STAGING_GCR_PROJECT }}'+'/'+'${{ inputs.image_name }}'
+            let imageList = stgBase+':${{ inputs.image_tag }}\n';
+            if (${{ inputs.stg_image_tag_stable }}) {
+            imageList += (stgBase+':stable\n');
+            }
+            if (${{ inputs.stg_image_tag_latest }}) {
+            imageList += (stgBase+':latest\n');
+            }
+            console.log(imageList.trim());
+            core.setOutput('staging_image_list', imageList);
+
+      - name: copy images to staging gcr
+        if: inputs.stg_image_build == true
+        uses: akhilerm/tag-push-action@v2.0.0
+        with:
+          src: ${{ env.LOCAL_IMAGE }}
+          dst: |
+            ${{ steps.set-staging-images.outputs.staging_image_list }}
+
+      ### DISTRIBUTION OF SRE IMAGES
+      - name: login to sre gcr
+        uses: docker/login-action@v2
+        if: inputs.sre_image_build == true
+        with:
+          registry: ${{ env.REPOSITORY }}
+          username: _json_key
+          password: ${{ secrets.SRE_GCR_SA }}
+
+      - name: create images' list for pushing to sre gcr
+        uses: actions/github-script@v6
+        if: inputs.sre_image_build == true
+        id: set-sre-images
+        with:
+          script: |
+            let sreBase = '${{ env.REPOSITORY }}'+'/'+'${{ env.SRE_GCR_PROJECT }}'+'/'+'${{ inputs.image_name }}'
+            let imageList = sreBase+':${{ inputs.image_tag }}\n';
+            if (${{ inputs.sre_image_tag_stable }}) {
+            imageList += (sreBase+':stable\n');
+            }
+            if (${{ inputs.sre_image_tag_latest }}) {
+            imageList += (sreBase+':latest\n');
+            }
+            console.log(imageList.trim());
+            core.setOutput('sre_image_list', imageList);
+
+      - name: copy images to sre gcr
+        if: inputs.sre_image_build == true
+        uses: akhilerm/tag-push-action@v2.0.0
+        with:
+          src: ${{ env.LOCAL_IMAGE }}
+          dst: |
+            ${{ steps.set-sre-images.outputs.sre_image_list }}
+
+      ### DISTRIBUTION OF PRODUCTION IMAGES
+      - name: login to production gcr
+        uses: docker/login-action@v2
+        if: inputs.prd_image_build == true
+        with:
+          registry: ${{ env.REPOSITORY }}
+          username: _json_key
+          password: ${{ secrets.PRODUCTION_GCR_SA }}
+
+      - name: create images' list for pushing to production gcr
+        uses: actions/github-script@v6
+        if: inputs.prd_image_build == true
+        id: set-prd-images
+        with:
+          script: |
+            let prdBase = '${{ env.REPOSITORY }}'+'/'+'${{ env.PRODUCTION_GCR_PROJECT }}'+'/'+'${{ inputs.image_name }}'
+            let imageList = prdBase+':${{ inputs.image_tag }}\n';
+            if (${{ inputs.prd_image_tag_stable }}) {
+            imageList += (prdBase+':stable\n');
+            }
+            if (${{ inputs.prd_image_tag_latest }}) {
+            imageList += (prdBase+':latest\n');
+            }
+            console.log(imageList.trim());
+            core.setOutput('prd_image_list', imageList);
+
+      - name: copy images to production gcr
+        if: inputs.prd_image_build == true
+        uses: akhilerm/tag-push-action@v2.0.0
+        with:
+          src: ${{ env.LOCAL_IMAGE }}
+          dst: |
+            ${{ steps.set-prd-images.outputs.prd_image_list }}
+      ##########################################################################
+      ### END OF IMAGE DISTRIBUTION
+      ##########################################################################
