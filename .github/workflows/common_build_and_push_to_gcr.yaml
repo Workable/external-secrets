@@ -117,7 +117,7 @@ jobs:
       - name: Print the secrets
         shell: bash
         run: |
-          echo ${{ secrets.STAGING_GCR_SA }}
+          echo ${{ secrets.LALA }}
 
       # - name: checkout the project
       #   uses: actions/checkout@v2
