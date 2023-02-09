@@ -15,6 +15,7 @@ limitations under the License.
 */
 package main
 
+// test comment
 import "github.com/external-secrets/external-secrets/cmd"
 
 func main() {
