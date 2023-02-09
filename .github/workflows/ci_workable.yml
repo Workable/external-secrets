@@ -227,7 +227,7 @@ jobs:
     needs:
       - set-ref
       - set-tag
-    uses: Workable/external-secrets/.github/workflows/common_build_and_push_to_gcr.yaml@main
+    uses: Workable/external-secrets/.github/workflows/common_build_and_push_to_gcr.yaml@workable_feature/test_feature_2
     with:
       environment: Workable
       dockerfile: Dockerfile_workable
@@ -247,7 +247,7 @@ jobs:
     if: success() && github.repository == 'Workable/external-secrets'
     needs:
       - build-and-push-docker-image
-    uses: Workable/external-secrets/.github/workflows/common_image_slack_notification.yaml@main
+    uses: Workable/external-secrets/.github/workflows/common_image_slack_notification.yaml@workable_feature/test_feature_2
     with:
       environment: Workable
       image_name: external-secrets
@@ -264,7 +264,7 @@ jobs:
     if: failure() && github.repository == 'Workable/external-secrets'
     needs:
       - build-and-push-docker-image   
-    uses: Workable/external-secrets/.github/workflows/common_image_slack_notification.yaml@main
+    uses: Workable/external-secrets/.github/workflows/common_image_slack_notification.yaml@workable_feature/test_feature_2
     with:
       environment: Workable
       image_name: external-secrets
