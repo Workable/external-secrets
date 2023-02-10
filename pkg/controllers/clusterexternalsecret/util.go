@@ -21,11 +21,29 @@ import (
 	"github.com/external-secrets/external-secrets/pkg/controllers/clusterexternalsecret/cesmetrics"
 )
 
+<<<<<<< HEAD
 func NewClusterExternalSecretCondition(failedNamespaces map[string]error, namespaceList *v1.NamespaceList) *esv1beta1.ClusterExternalSecretStatusCondition {
 	if len(namespaceList.Items) > 0 && len(failedNamespaces) == 0 {
 		return &esv1beta1.ClusterExternalSecretStatusCondition{
 			Type:   esv1beta1.ClusterExternalSecretReady,
 			Status: v1.ConditionTrue,
+=======
+func NewClusterExternalSecretCondition(condType esv1beta1.ClusterExternalSecretConditionType, status v1.ConditionStatus) *esv1beta1.ClusterExternalSecretStatusCondition {
+	return &esv1beta1.ClusterExternalSecretStatusCondition{
+		Type:   condType,
+		Status: status,
+	}
+}
+
+// test
+
+// GetExternalSecretCondition returns the condition with the provided type.
+func GetClusterExternalSecretCondition(status esv1beta1.ClusterExternalSecretStatus, condType esv1beta1.ClusterExternalSecretConditionType) *esv1beta1.ClusterExternalSecretStatusCondition {
+	for i := range status.Conditions {
+		c := status.Conditions[i]
+		if c.Type == condType {
+			return &c
+>>>>>>> ae0430db (Test)
 		}
 	}
 
