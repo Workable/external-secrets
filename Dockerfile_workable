@@ -1,13 +1,24 @@
-FROM golang:1.19 as builder
+FROM golang:1.19-bullseye as builder
 
-RUN make build-${TARGETARCH}
+ARG WDIR=/app
+
+RUN wget https://github.com/mikefarah/yq/releases/download/v4.2.0/yq_linux_amd64.tar.gz -O - | \
+    tar xz && mv yq_linux_amd64 /usr/bin/yq
+
+WORKDIR ${WDIR}
+
+COPY go.mod go.sum ${WDIR}
+RUN go mod download
+
+COPY . ${WDIR}
+
+RUN make build-amd64
 
 FROM gcr.io/distroless/static
 
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG WDIR=/app
 
-COPY --from=builder bin/external-secrets-${TARGETOS}-${TARGETARCH} /bin/external-secrets
+COPY --from=builder ${WDIR}/bin/external-secrets-linux-amd64 /bin/external-secrets
 
 # Run as UID for nobody
 USER 65534
