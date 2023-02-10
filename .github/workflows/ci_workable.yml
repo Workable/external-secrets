@@ -223,8 +223,8 @@ jobs:
     uses: Workable/external-secrets/.github/workflows/common_image_tagging_workflow.yaml@workable_feature/test_image_build
     with:
       push_to_prd: ${{ inputs.push_to_prd == true }}
-      tag: ${{ needs.set-ref.outputs.ref-for-name }}
-      ref: ${{ needs.set-ref.outputs.ref-for-checkout }}
+      tag: ${{ inputs.tag }}
+      ref: ${{ needs.set-ref.outputs.ref-for-name }}
 
   build-and-push-docker-image:
     name: Build and push docker image
@@ -240,7 +240,7 @@ jobs:
       stg_image_build: ${{ inputs.push_to_stg == true || github.event_name == 'push' }}
       prd_image_build: ${{ inputs.push_to_prd == true }}
       image_name: external-secrets
-      image_tag: ${{ needs.set-tag.outputs.tag }}
+      image_tag: ${{ needs.set-ref.outputs.ref-for-name }}
       no_cache: false
     secrets:
       SRE_GCR_SA: ${{ secrets.SRE_GCR_SA }}
@@ -251,6 +251,7 @@ jobs:
     name: Send Slack success message
     if: success() && github.repository == 'Workable/external-secrets'
     needs:
+      - set-tag
       - build-and-push-docker-image
     uses: Workable/external-secrets/.github/workflows/common_image_slack_notification.yaml@workable_feature/test_image_build
     with:
@@ -267,6 +268,7 @@ jobs:
     name: Send Slack failure message
     if: failure() && github.repository == 'Workable/external-secrets'
     needs:
+      - set-tag
       - build-and-push-docker-image   
     uses: Workable/external-secrets/.github/workflows/common_image_slack_notification.yaml@workable_feature/test_image_build
     with:
