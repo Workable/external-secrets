@@ -4,6 +4,8 @@ ARG TARGETARCH=amd64
 
 RUN make build-${TARGETARCH}
 
+RUN ls -al
+
 COPY bin/external-secrets-${TARGETOS}-${TARGETARCH} /bin/external-secrets
 
 # Run as UID for nobody
