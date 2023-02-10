@@ -15,6 +15,8 @@ limitations under the License.
 */
 package cmd
 
+// test comment
+
 import (
 	"os"
 	"time"
