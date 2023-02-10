@@ -15,7 +15,7 @@ on:
       manual_build_branch:
         description: "The branch the image should be built from"
         type: string
-        default: "master"
+        default: "main"
         required: true
       push_to_stg:
         description: "Build and push image to staging GCR"
