@@ -220,7 +220,7 @@ jobs:
     name: set the image tag
     needs:
       - set-ref
-    uses: Workable/external-secrets/.github/workflows/common_image_tagging_workflow.yaml@main
+    uses: Workable/external-secrets/.github/workflows/common_image_tagging_workflow.yaml@workable_feature/test_image_build
     with:
       push_to_prd: ${{ inputs.push_to_prd == true }}
       tag: ${{ inputs.tag }}
@@ -232,7 +232,7 @@ jobs:
     needs:
       - set-ref
       - set-tag
-    uses: Workable/external-secrets/.github/workflows/common_build_and_push_to_gcr.yaml@main
+    uses: Workable/external-secrets/.github/workflows/common_build_and_push_to_gcr.yaml@workable_feature/test_image_build
     with:
       environment: Workable
       dockerfile: Dockerfile_workable
