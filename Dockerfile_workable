@@ -1,10 +1,11 @@
-FROM gcr.io/distroless/static
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+FROM golang:1.19-alpine as builder
 
 RUN make build-${TARGETARCH}
 
-RUN ls -al
+FROM gcr.io/distroless/static
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
 
 COPY bin/external-secrets-${TARGETOS}-${TARGETARCH} /bin/external-secrets
 
