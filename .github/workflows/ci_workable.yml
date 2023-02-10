@@ -240,7 +240,7 @@ jobs:
       stg_image_build: ${{ inputs.push_to_stg == true || github.event_name == 'push' }}
       prd_image_build: ${{ inputs.push_to_prd == true }}
       image_name: external-secrets
-      image_tag: ${{ needs.set-ref.outputs.ref-for-name }}
+      image_tag: ${{ needs.set-tag.outputs.tag }}
       no_cache: false
     secrets:
       SRE_GCR_SA: ${{ secrets.SRE_GCR_SA }}
