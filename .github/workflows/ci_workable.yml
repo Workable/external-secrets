@@ -224,7 +224,6 @@ jobs:
   build-and-push-docker-image:
     name: Build and push docker image
     if: github.repository == 'Workable/external-secrets'
-    name: Build and push docker image
     needs:
       - set-ref
       - set-tag
