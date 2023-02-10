@@ -1,4 +1,3 @@
-.git
 .github
 .gitignore
 .golangci.yaml
@@ -7,7 +6,6 @@ CNAME
 Dockerfile
 Dockerfile.standalone
 LICENSE
-Makefile
 PROJECT
 README.md
 SECURITY.md
@@ -15,10 +13,8 @@ assets
 changelog.json
 config
 cover.out
-deploy
 design
 docs
-hack
 overrides
 site
 terraform

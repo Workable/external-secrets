@@ -1,11 +1,16 @@
-name: Workable CI
+name: External Secrets Workable CI
 
 on:
   push:
     branches:
       - main
       - workable_feature/*
-  pull_request: {}
+  pull_request: 
+    types:
+      - opened
+    branches:
+      - main
+      - workable_feature/*
   workflow_dispatch:
     inputs:
       tag:
@@ -15,7 +20,7 @@ on:
       manual_build_branch:
         description: "The branch the image should be built from"
         type: string
-        default: "master"
+        default: "main"
         required: true
       push_to_stg:
         description: "Build and push image to staging GCR"
@@ -205,7 +210,7 @@ jobs:
           if [[ "${{ inputs.manual_build_branch }}" == "" ]]; then
             ACTUAL_BRANCH=${{ github.ref_name }}
           else
-            "ACTUAL_BRANCH=${{ inputs.manual_build_branch }}"
+            ACTUAL_BRANCH=${{ inputs.manual_build_branch }}
           fi
           echo "ref-for-name=${ACTUAL_BRANCH#workable_feature/*}" >> $GITHUB_OUTPUT
           echo "ref-for-checkout=$ACTUAL_BRANCH" >> $GITHUB_OUTPUT
@@ -246,13 +251,13 @@ jobs:
     name: Send Slack success message
     if: success() && github.repository == 'Workable/external-secrets'
     needs:
+      - set-tag
       - build-and-push-docker-image
     uses: Workable/external-secrets/.github/workflows/common_image_slack_notification.yaml@main
     with:
       environment: Workable
       image_name: external-secrets
       image_tag: ${{ needs.set-tag.outputs.tag }}
-      slack_channel: ${{ vars.SLACK_CHANNEL }}
       stg_image_build: ${{ inputs.push_to_stg == true || github.event_name == 'push' }}
       prd_image_build: ${{ inputs.push_to_prd == true }}
       success: true
@@ -263,13 +268,13 @@ jobs:
     name: Send Slack failure message
     if: failure() && github.repository == 'Workable/external-secrets'
     needs:
+      - set-tag
       - build-and-push-docker-image   
     uses: Workable/external-secrets/.github/workflows/common_image_slack_notification.yaml@main
     with:
       environment: Workable
       image_name: external-secrets
       image_tag: ${{ needs.set-tag.outputs.tag }}
-      slack_channel: ${{ vars.SLACK_CHANNEL }}
       stg_image_build: ${{ inputs.push_to_stg == true || github.event_name == 'push' }}
       prd_image_build: ${{ inputs.push_to_prd == true }}
       success: false
