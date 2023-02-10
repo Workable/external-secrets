@@ -31,10 +31,10 @@ jobs:
     
     steps:
       - name: validate inputs
-        if: inputs.push_to_prd && ( inputs.tag == '' || inputs.ref != 'master' )
+        if: inputs.push_to_prd && ( inputs.tag == '' || inputs.ref != 'main' )
         shell: bash
         run: |
-          echo "Images can be pushed to production GCR only if the build branch is 'master' and the image tag is provided manually"
+          echo "Images can be pushed to production GCR only if the build branch is 'main' and the image tag is provided manually"
           exit 1
 
       - name: set image tag
