@@ -3,6 +3,10 @@ name: Build and push images to sre, staging and production GCR
 on:
   workflow_call:
     inputs:
+      environment:
+        description: The environment this reusable workflow will run on
+        type: string
+        required: true
       build_branch:
         description: the branch of the project to build the image(s) from
         required: true
@@ -100,6 +104,7 @@ jobs:
 
   build_images:
     name: build image(s)
+    environment: ${{ inputs.environment }}
     if: inputs.sre_image_build == true || inputs.stg_image_build == true || inputs.prd_image_build == true
     runs-on: ubuntu-latest
     services:
