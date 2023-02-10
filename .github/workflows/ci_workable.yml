@@ -210,7 +210,7 @@ jobs:
           if [[ "${{ inputs.manual_build_branch }}" == "" ]]; then
             ACTUAL_BRANCH=${{ github.ref_name }}
           else
-            "ACTUAL_BRANCH=${{ inputs.manual_build_branch }}"
+            ACTUAL_BRANCH=${{ inputs.manual_build_branch }}
           fi
           echo "ref-for-name=${ACTUAL_BRANCH#workable_feature/*}" >> $GITHUB_OUTPUT
           echo "ref-for-checkout=$ACTUAL_BRANCH" >> $GITHUB_OUTPUT
