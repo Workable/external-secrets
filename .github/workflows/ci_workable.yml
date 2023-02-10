@@ -223,8 +223,8 @@ jobs:
     uses: Workable/external-secrets/.github/workflows/common_image_tagging_workflow.yaml@workable_feature/test_image_build
     with:
       push_to_prd: ${{ inputs.push_to_prd == true }}
-      tag: ${{ inputs.tag }}
-      ref: ${{ needs.set-ref.outputs.ref-for-name }}
+      tag: ${{ needs.set-ref.outputs.ref-for-name }}
+      ref: ${{ needs.set-ref.outputs.ref-for-checkout }}
 
   build-and-push-docker-image:
     name: Build and push docker image
