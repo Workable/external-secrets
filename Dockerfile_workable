@@ -7,7 +7,7 @@ FROM gcr.io/distroless/static
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 
-COPY bin/external-secrets-${TARGETOS}-${TARGETARCH} /bin/external-secrets
+COPY --from=builder bin/external-secrets-${TARGETOS}-${TARGETARCH} /bin/external-secrets
 
 # Run as UID for nobody
 USER 65534
