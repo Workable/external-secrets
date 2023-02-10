@@ -191,8 +191,8 @@ jobs:
   set-ref:
     if: github.repository == 'Workable/external-secrets'
     name: retrieve the actual build branch
-    # needs:
-    #   - unit-tests
+    needs:
+      - unit-tests
     runs-on: ubuntu-latest
     outputs:
       ref-for-name: ${{ steps.set-branch.outputs.ref-for-name }}
