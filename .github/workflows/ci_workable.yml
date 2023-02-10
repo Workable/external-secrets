@@ -5,7 +5,12 @@ on:
     branches:
       - main
       - workable_feature/*
-  pull_request: {}
+  pull_request: 
+    types:
+      - opened
+    branches:
+      - main
+      - workable_feature/*
   workflow_dispatch:
     inputs:
       tag:
