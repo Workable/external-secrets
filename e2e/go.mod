@@ -44,7 +44,7 @@ require (
 	github.com/akeylesslabs/akeyless-go-cloud-id v0.3.4
 	github.com/akeylesslabs/akeyless-go/v3 v3.2.8
 	github.com/aliyun/alibaba-cloud-sdk-go v1.62.236
-	github.com/argoproj/argo-cd/v2 v2.4.8
+	github.com/argoproj/argo-cd/v2 v2.4.28
 	github.com/aws/aws-sdk-go v1.44.220
 	github.com/external-secrets/external-secrets v0.0.0
 	github.com/fluxcd/helm-controller/api v0.22.2
