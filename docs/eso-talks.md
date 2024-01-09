@@ -21,3 +21,19 @@ A list of talks given by people at conferences and events. Feel free to let us k
 ## AWS Containers from the Couch
 
 [![AWS Containers from the Couch](https://img.youtube.com/vi/FityN80Cpto/0.jpg)](https://www.youtube.com/watch?v=FityN80Cpto)
+
+## FOSDEM '23 (Containers devroom)
+
+[FOSDEM '23 (Containers devroom)](https://fosdem.org/2023/schedule/event/container_kubernetes_secret_rotation/)
+
+## Form3 .tech Podcast - Building and maintaining External Secrets Operator
+
+[Podcast and Blog](https://www.form3.tech/engineering/content/podcast-ext-secrets)
+
+## ⚡️ Enlightning - Exploring External Secrets Operator
+
+[![](https://img.youtube.com/vi/7uY_qW6TWf8/0.jpg)](https://www.youtube.com/watch?v=7uY_qW6TWf8&ab_channel=VMwareTanzu)
+
+## KubeCon EU '23 - Protecting Your Crown Jewels with External Secrets Operator
+
+[![Protecting Your Crown Jewels with External Secrets Operator](https://img.youtube.com/vi/upwIlUHkDf8/0.jpg)](https://www.youtube.com/watch?v=upwIlUHkDf8&ab_channel=CNCF%5BCloudNativeComputingFoundation%5D)

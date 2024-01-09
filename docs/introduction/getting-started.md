@@ -9,34 +9,34 @@ and manages Kubernetes secret resources with ExternalSecret resources.
 
 ## Installing with Helm
 
-To automatically install and manage the CRDs as part of your Helm release, you must add the --set installCRDs=true flag to your Helm installation command.
+The default install options will automatically install and manage the CRDs as part of your helm release. If you do not want the CRDs to be automatically upgraded and managed, you must set the `installCRDs` option to `false`. (e.g. `--set installCRDS=false`)
 
-Uncomment the relevant line in the next steps to enable this.
+Uncomment the relevant line in the next steps to disable the automatic install of CRDs.
 
 ### Option 1: Install from chart repository
 
-``` bash
+```bash
 helm repo add external-secrets https://charts.external-secrets.io
 
 helm install external-secrets \
    external-secrets/external-secrets \
     -n external-secrets \
     --create-namespace \
-  # --set installCRDs=true
+  # --set installCRDs=false
 ```
 
 ### Option 2: Install chart from local build
 
 Build and install the Helm chart locally after cloning the repository.
 
-``` bash
+```bash
 make helm.build
 
 helm install external-secrets \
     ./bin/chart/external-secrets.tgz \
     -n external-secrets \
     --create-namespace \
-  # --set installCRDs=true
+  # --set installCRDs=false
 ```
 
 ### Create a secret containing your AWS credentials
@@ -49,21 +49,39 @@ kubectl create secret generic awssm-secret --from-file=./access-key --from-file=
 
 ### Create your first SecretStore
 
-``` yaml
+Create a file 'basic-secret-store.yaml' with the following content.
+
+```yaml
 {% include 'basic-secret-store.yaml' %}
+```
+
+Apply it to create a SecretStore resource.
+
+```
+kubectl apply -f "basic-secret-store.yaml"
 ```
 
 ### Create your first ExternalSecret
 
-``` yaml
+Create a file 'basic-external-secret.yaml' with the following content.
+
+```yaml
 {% include 'basic-external-secret.yaml' %}
 ```
 
-``` bash
+Apply it to create an External Secret resource.
+
+```
+kubectl apply -f "basic-external-secret.yaml"
+```
+
+```bash
 kubectl describe externalsecret example
 # [...]
 Name:  example
 Status:
+  Binding:
+    Name:                  secret-to-be-created
   Conditions:
     Last Transition Time:  2021-02-24T16:45:23Z
     Message:               Secret was synced

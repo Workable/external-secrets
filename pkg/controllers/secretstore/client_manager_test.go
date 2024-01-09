@@ -100,7 +100,7 @@ func TestManagerGet(t *testing.T) {
 	type args struct {
 		storeRef  esv1beta1.SecretStoreRef
 		namespace string
-		sourceRef *esv1beta1.SourceRef
+		sourceRef *esv1beta1.StoreGeneratorSourceRef
 	}
 	tests := []struct {
 		name              string
@@ -168,7 +168,7 @@ func TestManagerGet(t *testing.T) {
 					Kind: esv1beta1.SecretStoreKind,
 				},
 				// this should take precedence
-				sourceRef: &esv1beta1.SourceRef{
+				sourceRef: &esv1beta1.StoreGeneratorSourceRef{
 					SecretStoreRef: &esv1beta1.SecretStoreRef{
 						Name: otherStore.Name,
 						Kind: esv1beta1.SecretStoreKind,
@@ -331,7 +331,7 @@ func (f *WrapProvider) Capabilities() esv1beta1.SecretStoreCapabilities {
 }
 
 // ValidateStore checks if the provided store is valid.
-func (f *WrapProvider) ValidateStore(store esv1beta1.GenericStore) error {
+func (f *WrapProvider) ValidateStore(_ esv1beta1.GenericStore) error {
 	return nil
 }
 
@@ -340,15 +340,15 @@ type MockFakeClient struct {
 	closeCalled bool
 }
 
-func (c *MockFakeClient) PushSecret(ctx context.Context, value []byte, remoteRef esv1beta1.PushRemoteRef) error {
+func (c *MockFakeClient) PushSecret(_ context.Context, _ *corev1.Secret, _ esv1beta1.PushSecretData) error {
 	return nil
 }
 
-func (c *MockFakeClient) DeleteSecret(ctx context.Context, remoteRef esv1beta1.PushRemoteRef) error {
+func (c *MockFakeClient) DeleteSecret(_ context.Context, _ esv1beta1.PushSecretRemoteRef) error {
 	return nil
 }
 
-func (c *MockFakeClient) GetSecret(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) ([]byte, error) {
+func (c *MockFakeClient) GetSecret(_ context.Context, _ esv1beta1.ExternalSecretDataRemoteRef) ([]byte, error) {
 	return nil, nil
 }
 
@@ -357,16 +357,16 @@ func (c *MockFakeClient) Validate() (esv1beta1.ValidationResult, error) {
 }
 
 // GetSecretMap returns multiple k/v pairs from the provider.
-func (c *MockFakeClient) GetSecretMap(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
+func (c *MockFakeClient) GetSecretMap(_ context.Context, _ esv1beta1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
 	return nil, nil
 }
 
 // GetAllSecrets returns multiple k/v pairs from the provider.
-func (c *MockFakeClient) GetAllSecrets(ctx context.Context, ref esv1beta1.ExternalSecretFind) (map[string][]byte, error) {
+func (c *MockFakeClient) GetAllSecrets(_ context.Context, _ esv1beta1.ExternalSecretFind) (map[string][]byte, error) {
 	return nil, nil
 }
 
-func (c *MockFakeClient) Close(ctx context.Context) error {
+func (c *MockFakeClient) Close(_ context.Context) error {
 	c.closeCalled = true
 	return nil
 }

@@ -29,6 +29,7 @@ import (
 
 	genv1alpha1 "github.com/external-secrets/external-secrets/apis/generators/v1alpha1"
 	provider "github.com/external-secrets/external-secrets/pkg/provider/vault"
+	"github.com/external-secrets/external-secrets/pkg/utils"
 )
 
 type Generator struct{}
@@ -83,9 +84,11 @@ func (g *Generator) generate(ctx context.Context, c *provider.Connector, jsonSpe
 		result, err = cl.Logical().DeleteWithContext(ctx, res.Spec.Path)
 	} else {
 		params := make(map[string]interface{})
-		err = json.Unmarshal(res.Spec.Parameters.Raw, &params)
-		if err != nil {
-			return nil, err
+		if res.Spec.Parameters != nil {
+			err = json.Unmarshal(res.Spec.Parameters.Raw, &params)
+			if err != nil {
+				return nil, err
+			}
 		}
 		result, err = cl.Logical().WriteWithContext(ctx, res.Spec.Path, params)
 	}
@@ -96,9 +99,23 @@ func (g *Generator) generate(ctx context.Context, c *provider.Connector, jsonSpe
 		return nil, fmt.Errorf(errGetSecret, fmt.Errorf("empty response from Vault"))
 	}
 
+	data := make(map[string]interface{})
 	response := make(map[string][]byte)
-	for k := range result.Data {
-		response[k], err = provider.GetTypedKey(result.Data, k)
+	if res.Spec.ResultType == genv1alpha1.VaultDynamicSecretResultTypeAuth {
+		authJSON, err := json.Marshal(result.Auth)
+		if err != nil {
+			return nil, err
+		}
+		err = json.Unmarshal(authJSON, &data)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		data = result.Data
+	}
+
+	for k := range data {
+		response[k], err = utils.GetByteValueFromMap(data, k)
 		if err != nil {
 			return nil, err
 		}

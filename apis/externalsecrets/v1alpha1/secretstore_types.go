@@ -21,10 +21,10 @@ import (
 
 // SecretStoreSpec defines the desired state of SecretStore.
 type SecretStoreSpec struct {
-	// Used to select the correct KES controller (think: ingress.ingressClassName)
-	// The KES controller is instantiated with a specific controller name and filters ES based on this property
+	// Used to select the correct ESO controller (think: ingress.ingressClassName)
+	// The ESO controller is instantiated with a specific controller name and filters ES based on this property
 	// +optional
-	Controller string `json:"controller"`
+	Controller string `json:"controller,omitempty"`
 
 	// Used to configure the provider. Only one provider may be set
 	Provider *SecretStoreProvider `json:"provider"`
@@ -70,7 +70,7 @@ type SecretStoreProvider struct {
 	// +optional
 	YandexLockbox *YandexLockboxProvider `json:"yandexlockbox,omitempty"`
 
-	// Gitlab configures this store to sync secrets using Gitlab Variables provider
+	// GitLab configures this store to sync secrets using GitLab Variables provider
 	// +optional
 	Gitlab *GitlabProvider `json:"gitlab,omitempty"`
 
@@ -124,7 +124,7 @@ type SecretStoreStatusCondition struct {
 // SecretStoreStatus defines the observed state of the SecretStore.
 type SecretStoreStatus struct {
 	// +optional
-	Conditions []SecretStoreStatusCondition `json:"conditions"`
+	Conditions []SecretStoreStatusCondition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
