@@ -31,4 +31,43 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].securityContext
           value:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
             runAsUser: 3000
+            seccompProfile:
+              type: RuntimeDefault
+  - it: should override hostNetwork
+    set:
+      hostNetwork: true
+    asserts:
+      - equal:
+          path: spec.template.spec.hostNetwork
+          value: true
+  - it: should override metrics port
+    set:
+      metrics.listen.port: 8888
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args[1]
+          value: "--metrics-addr=:8888"
+  - it: should override image flavour
+    set:
+      image.repository: ghcr.io/external-secrets/external-secrets
+      image.tag: v0.9.8
+      image.flavour: ubi-boringssl
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/external-secrets/external-secrets:v0.9.8-ubi-boringssl
+  - it: should override image flavour
+    set:
+      image.repository: example.com/external-secrets/external-secrets
+      image.tag: v0.9.9-ubi
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: example.com/external-secrets/external-secrets:v0.9.9-ubi

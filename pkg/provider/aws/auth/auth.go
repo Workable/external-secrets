@@ -126,11 +126,35 @@ func New(ctx context.Context, store esv1beta1.GenericStore, kube client.Client, 
 		sess.Config.WithCredentials(stscreds.NewCredentialsWithClient(stsclient, aRole))
 	}
 
+	sessExtID := prov.ExternalID
+	sessTransitiveTagKeys := prov.TransitiveTagKeys
+	sessTags := make([]*sts.Tag, len(prov.SessionTags))
+	for i, tag := range prov.SessionTags {
+		sessTags[i] = &sts.Tag{
+			Key:   aws.String(tag.Key),
+			Value: aws.String(tag.Value),
+		}
+	}
 	if prov.Role != "" {
 		stsclient := assumeRoler(sess)
-		sess.Config.WithCredentials(stscreds.NewCredentialsWithClient(stsclient, prov.Role))
+		if sessExtID != "" || sessTags != nil {
+			var setAssumeRoleOptions = func(p *stscreds.AssumeRoleProvider) {
+				if sessExtID != "" {
+					p.ExternalID = aws.String(sessExtID)
+				}
+				if sessTags != nil {
+					p.Tags = sessTags
+					if len(sessTransitiveTagKeys) > 0 {
+						p.TransitiveTagKeys = sessTransitiveTagKeys
+					}
+				}
+			}
+			sess.Config.WithCredentials(stscreds.NewCredentialsWithClient(stsclient, prov.Role, setAssumeRoleOptions))
+		} else {
+			sess.Config.WithCredentials(stscreds.NewCredentialsWithClient(stsclient, prov.Role))
+		}
 	}
-	log.Info("using aws session", "region", *sess.Config.Region, "credentials", creds)
+	log.Info("using aws session", "region", *sess.Config.Region, "external id", sessExtID, "credentials", creds)
 	return sess, nil
 }
 
@@ -349,16 +373,15 @@ func getAWSSession(config *aws.Config, enableCache bool, name, kind, namespace, 
 	handlers := defaults.Handlers()
 	handlers.Build.PushBack(request.WithAppendUserAgent("external-secrets"))
 	sess, err := session.NewSessionWithOptions(session.Options{
-		Config:            *config,
-		Handlers:          handlers,
-		SharedConfigState: session.SharedConfigDisable,
+		Config:   *config,
+		Handlers: handlers,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	if enableCache {
-		sessionCache.Add(resourceVersion, key, sess)
+		sessionCache.Add(resourceVersion, key, sess.Copy())
 	}
 	return sess, nil
 }

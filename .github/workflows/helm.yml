@@ -7,9 +7,11 @@ on:
       - release-*
     paths:
       - 'deploy/charts/**'
+      - 'deploy/crds'
   pull_request:
     paths:
       - 'deploy/charts/**'
+      - 'deploy/crds'
   workflow_dispatch: {}
 
 jobs:
@@ -17,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -29,19 +31,19 @@ jobs:
         with:
           version: v3.4.2
 
-      - uses: actions/setup-python@v4.5.0
+      - uses: actions/setup-python@v5.0.0
         with:
           python-version: 3.7
 
       - name: Set up chart-testing
-        uses: helm/chart-testing-action@v2.3.1
+        uses: helm/chart-testing-action@v2.6.1
 
       - name: Run chart-testing (list-changed)
         id: list-changed
         run: |
           changed=$(ct list-changed --config=.github/ci/ct.yaml)
           if [[ -n "$changed" ]]; then
-            echo "::set-output name=changed::true"
+            echo "changed=true" >> $GITHUB_OUTPUT
           fi
       - name: Install chart unittest
         run: |
@@ -51,7 +53,7 @@ jobs:
         run: ct lint --config=.github/ci/ct.yaml
 
       - name: Create kind cluster
-        uses: helm/kind-action@v1.2.0
+        uses: helm/kind-action@v1.8.0
         if: steps.list-changed.outputs.changed == 'true'
 
       - name: Run chart-testing (install)
@@ -66,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -83,11 +85,14 @@ jobs:
         run: |
           make helm.generate
       - name: Run chart-releaser
-        uses: helm/chart-releaser-action@v1.5.0
-        if: github.ref == 'refs/heads/main'
+        uses: helm/chart-releaser-action@v1.6.0
+        if: |
+          github.ref == 'refs/heads/main' ||
+          startsWith(github.ref, 'refs/heads/release-')
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
           CR_RELEASE_NAME_TEMPLATE: "helm-chart-{{ .Version }}"
         with:
           charts_dir: deploy/charts
+          skip_existing: true
           charts_repo_url: https://charts.external-secrets.io

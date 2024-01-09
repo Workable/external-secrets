@@ -15,46 +15,53 @@ package v1beta1
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 type ExternalSecretValidator struct{}
 
-func (esv *ExternalSecretValidator) ValidateCreate(ctx context.Context, obj runtime.Object) error {
+func (esv *ExternalSecretValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
 	return validateExternalSecret(obj)
 }
 
-func (esv *ExternalSecretValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
+func (esv *ExternalSecretValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
 	return validateExternalSecret(newObj)
 }
 
-func (esv *ExternalSecretValidator) ValidateDelete(ctx context.Context, obj runtime.Object) error {
-	return nil
+func (esv *ExternalSecretValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+	return nil, nil
 }
 
-func validateExternalSecret(obj runtime.Object) error {
+func validateExternalSecret(obj runtime.Object) (admission.Warnings, error) {
 	es, ok := obj.(*ExternalSecret)
 	if !ok {
-		return fmt.Errorf("unexpected type")
+		return nil, fmt.Errorf("unexpected type")
 	}
 
+	var errs error
 	if (es.Spec.Target.DeletionPolicy == DeletionPolicyDelete && es.Spec.Target.CreationPolicy == CreatePolicyMerge) ||
 		(es.Spec.Target.DeletionPolicy == DeletionPolicyDelete && es.Spec.Target.CreationPolicy == CreatePolicyNone) {
-		return fmt.Errorf("deletionPolicy=Delete must not be used when the controller doesn't own the secret. Please set creationPolcy=Owner")
+		errs = errors.Join(errs, fmt.Errorf("deletionPolicy=Delete must not be used when the controller doesn't own the secret. Please set creationPolicy=Owner"))
 	}
 
 	if es.Spec.Target.DeletionPolicy == DeletionPolicyMerge && es.Spec.Target.CreationPolicy == CreatePolicyNone {
-		return fmt.Errorf("deletionPolicy=Merge must not be used with creationPolcy=None. There is no Secret to merge with")
+		errs = errors.Join(errs, fmt.Errorf("deletionPolicy=Merge must not be used with creationPolicy=None. There is no Secret to merge with"))
+	}
+
+	if len(es.Spec.Data) == 0 && len(es.Spec.DataFrom) == 0 {
+		errs = errors.Join(errs, fmt.Errorf("either data or dataFrom should be specified"))
 	}
 
 	for _, ref := range es.Spec.DataFrom {
 		findOrExtract := ref.Find != nil || ref.Extract != nil
 		if findOrExtract && ref.SourceRef != nil && ref.SourceRef.GeneratorRef != nil {
-			return fmt.Errorf("generator can not be used with find or extract")
+			errs = errors.Join(errs, fmt.Errorf("generator can not be used with find or extract"))
 		}
 	}
 
-	return nil
+	return nil, errs
 }
