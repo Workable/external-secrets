@@ -1,14 +1,21 @@
-ARG GO_VERSION=1.19
-FROM golang:$GO_VERSION-buster as builder
+ARG GO_VERSION=1.21
+FROM golang:$GO_VERSION-bookworm as builder
 
-ENV KUBECTL_VERSION="v1.24.3"
-ENV HELM_VERSION="v3.7.1"
+ENV KUBECTL_VERSION="v1.28.3"
+ENV HELM_VERSION="v3.13.1"
 
 RUN go install github.com/onsi/ginkgo/v2/ginkgo@v2.1.6
 RUN wget -q https://storage.googleapis.com/kubernetes-release/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl -O /usr/local/bin/kubectl && \
     chmod +x /usr/local/bin/kubectl && \
     wget -q https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz -O - | tar -xzO linux-amd64/helm > /usr/local/bin/helm && \
     chmod +x /usr/local/bin/helm
+
+WORKDIR /usr/src/app
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
+COPY . .
+WORKDIR /usr/src/app/e2e
+RUN make e2e-bin
 
 FROM alpine:3.15.0
 RUN apk add -U --no-cache \
@@ -23,11 +30,11 @@ COPY --from=builder /go/bin/ginkgo /usr/local/bin/
 COPY --from=builder /usr/local/bin/kubectl /usr/local/bin/
 COPY --from=builder /usr/local/bin/helm /usr/local/bin/
 
-COPY entrypoint.sh                   /entrypoint.sh
-COPY suites/provider/provider.test   /provider.test
-COPY suites/argocd/argocd.test       /argocd.test
-COPY suites/flux/flux.test           /flux.test
-COPY suites/generator/generator.test /generator.test
-COPY k8s                             /k8s
+COPY --from=builder /usr/src/app/e2e/entrypoint.sh                   /entrypoint.sh
+COPY --from=builder /usr/src/app/e2e/suites/provider/provider.test   /provider.test
+COPY --from=builder /usr/src/app/e2e/suites/argocd/argocd.test       /argocd.test
+COPY --from=builder /usr/src/app/e2e/suites/flux/flux.test           /flux.test
+COPY --from=builder /usr/src/app/e2e/suites/generator/generator.test /generator.test
+COPY --from=builder /usr/src/app/e2e/k8s                             /k8s
 
 CMD [ "/entrypoint.sh" ]

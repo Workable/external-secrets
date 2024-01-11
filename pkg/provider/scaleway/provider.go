@@ -67,6 +67,7 @@ func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, 
 		scw.WithDefaultRegion(scw.Region(cfg.Region)),
 		scw.WithDefaultProjectID(cfg.ProjectID),
 		scw.WithAuth(accessKey, secretKey),
+		scw.WithUserAgent("external-secrets"),
 	)
 	if err != nil {
 		return nil, err
@@ -134,11 +135,11 @@ func validateSecretRef(store esv1beta1.GenericStore, ref *esv1beta1.ScalewayProv
 }
 
 func doesConfigDependOnNamespace(cfg *esv1beta1.ScalewayProvider) bool {
-	if cfg.AccessKey.SecretRef != nil && cfg.AccessKey.SecretRef.Namespace != nil {
+	if cfg.AccessKey.SecretRef != nil && cfg.AccessKey.SecretRef.Namespace == nil {
 		return true
 	}
 
-	if cfg.SecretKey.SecretRef != nil && cfg.SecretKey.SecretRef.Namespace != nil {
+	if cfg.SecretKey.SecretRef != nil && cfg.SecretKey.SecretRef.Namespace == nil {
 		return true
 	}
 

@@ -19,22 +19,24 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	tpl "text/template"
 	"time"
 
 	"github.com/PaesslerAG/jsonpath"
-	"gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
-	"github.com/external-secrets/external-secrets/pkg/provider/metrics"
+	"github.com/external-secrets/external-secrets/pkg/constants"
+	"github.com/external-secrets/external-secrets/pkg/metrics"
 	"github.com/external-secrets/external-secrets/pkg/template/v2"
 	"github.com/external-secrets/external-secrets/pkg/utils"
 )
@@ -66,7 +68,7 @@ func (p *Provider) Capabilities() esv1beta1.SecretStoreCapabilities {
 	return esv1beta1.SecretStoreReadOnly
 }
 
-func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, kube client.Client, namespace string) (esv1beta1.SecretsClient, error) {
+func (p *Provider) NewClient(_ context.Context, store esv1beta1.GenericStore, kube client.Client, namespace string) (esv1beta1.SecretsClient, error) {
 	whClient := &WebHook{
 		kube:      kube,
 		store:     store,
@@ -86,7 +88,7 @@ func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, 
 	return whClient, nil
 }
 
-func (p *Provider) ValidateStore(store esv1beta1.GenericStore) error {
+func (p *Provider) ValidateStore(_ esv1beta1.GenericStore) error {
 	return nil
 }
 
@@ -116,17 +118,17 @@ func (w *WebHook) getStoreSecret(ctx context.Context, ref esmeta.SecretKeySelect
 	return secret, nil
 }
 
-func (w *WebHook) DeleteSecret(ctx context.Context, remoteRef esv1beta1.PushRemoteRef) error {
+func (w *WebHook) DeleteSecret(_ context.Context, _ esv1beta1.PushSecretRemoteRef) error {
 	return fmt.Errorf("not implemented")
 }
 
 // Not Implemented PushSecret.
-func (w *WebHook) PushSecret(ctx context.Context, value []byte, remoteRef esv1beta1.PushRemoteRef) error {
+func (w *WebHook) PushSecret(_ context.Context, _ *corev1.Secret, _ esv1beta1.PushSecretData) error {
 	return fmt.Errorf("not implemented")
 }
 
 // Empty GetAllSecrets.
-func (w *WebHook) GetAllSecrets(ctx context.Context, ref esv1beta1.ExternalSecretFind) (map[string][]byte, error) {
+func (w *WebHook) GetAllSecrets(_ context.Context, _ esv1beta1.ExternalSecretFind) (map[string][]byte, error) {
 	// TO be implemented
 	return nil, fmt.Errorf("GetAllSecrets not implemented")
 }
@@ -151,28 +153,52 @@ func (w *WebHook) GetSecret(ctx context.Context, ref esv1beta1.ExternalSecretDat
 	}
 	if resultJSONPath != "" {
 		jsondata := interface{}(nil)
-		if err := yaml.Unmarshal(result, &jsondata); err != nil {
+		if err := json.Unmarshal(result, &jsondata); err != nil {
 			return nil, fmt.Errorf("failed to parse response json: %w", err)
 		}
 		jsondata, err = jsonpath.Get(resultJSONPath, jsondata)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get response path %s: %w", resultJSONPath, err)
 		}
-		jsonvalue, ok := jsondata.(string)
-		if !ok {
-			jsonvalues, ok := jsondata.([]interface{})
-			if !ok {
-				return nil, fmt.Errorf("failed to get response (wrong type: %T)", jsondata)
-			}
-			if len(jsonvalues) == 0 {
-				return nil, fmt.Errorf("filter worked but didn't get any result")
-			}
-			jsonvalue = jsonvalues[0].(string)
-		}
-		return []byte(jsonvalue), nil
+		return extractSecretData(jsondata)
 	}
 
 	return result, nil
+}
+
+// tries to extract data from an interface{}
+// it is supposed to return a single value.
+func extractSecretData(jsondata any) ([]byte, error) {
+	switch val := jsondata.(type) {
+	case bool:
+		return []byte(strconv.FormatBool(val)), nil
+	case nil:
+		return []byte{}, nil
+	case int:
+		return []byte(strconv.Itoa(val)), nil
+	case float64:
+		return []byte(strconv.FormatFloat(val, 'f', 0, 64)), nil
+	case []byte:
+		return val, nil
+	case string:
+		return []byte(val), nil
+
+	// due to backwards compatibility we must keep this!
+	// in case we see a []something we pick the first element and return it
+	case []any:
+		if len(val) == 0 {
+			return nil, fmt.Errorf("filter worked but didn't get any result")
+		}
+		return extractSecretData(val[0])
+
+	// in case we encounter a map we serialize it instead of erroring out
+	// The user should use that data from within a template and figure
+	// out how to deal with it.
+	case map[string]any:
+		return json.Marshal(val)
+	default:
+		return nil, fmt.Errorf("failed to get response (wrong type: %T)", jsondata)
+	}
 }
 
 func (w *WebHook) GetSecretMap(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
@@ -187,7 +213,7 @@ func (w *WebHook) GetSecretMap(ctx context.Context, ref esv1beta1.ExternalSecret
 
 	// We always want json here, so just parse it out
 	jsondata := interface{}(nil)
-	if err := yaml.Unmarshal(result, &jsondata); err != nil {
+	if err := json.Unmarshal(result, &jsondata); err != nil {
 		return nil, fmt.Errorf("failed to parse response json: %w", err)
 	}
 	// Get subdata via jsonpath, if given
@@ -202,7 +228,7 @@ func (w *WebHook) GetSecretMap(ctx context.Context, ref esv1beta1.ExternalSecret
 	if ok {
 		// This could also happen if the response was a single json-encoded string
 		// but that is an extremely unlikely scenario
-		if err := yaml.Unmarshal([]byte(jsonstring), &jsondata); err != nil {
+		if err := json.Unmarshal([]byte(jsonstring), &jsondata); err != nil {
 			return nil, fmt.Errorf("failed to parse response json from jsonpath: %w", err)
 		}
 	}
@@ -281,7 +307,7 @@ func (w *WebHook) getWebhookData(ctx context.Context, provider *esv1beta1.Webhoo
 	}
 
 	resp, err := w.http.Do(req)
-	metrics.ObserveAPICall(metrics.ProviderWebhook, metrics.CallWebhookHTTPReq, err)
+	metrics.ObserveAPICall(constants.ProviderWebhook, constants.CallWebhookHTTPReq, err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call endpoint: %w", err)
 	}
@@ -423,7 +449,7 @@ func (w *WebHook) getCertFromConfigMap(provider *esv1beta1.WebhookProvider) ([]b
 	return []byte(val), nil
 }
 
-func (w *WebHook) Close(ctx context.Context) error {
+func (w *WebHook) Close(_ context.Context) error {
 	return nil
 }
 

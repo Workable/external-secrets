@@ -26,12 +26,16 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ssm"
 	"github.com/tidwall/gjson"
-	utilpointer "k8s.io/utils/pointer"
+	corev1 "k8s.io/api/core/v1"
+	utilpointer "k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	"github.com/external-secrets/external-secrets/pkg/constants"
 	"github.com/external-secrets/external-secrets/pkg/find"
+	"github.com/external-secrets/external-secrets/pkg/metrics"
 	"github.com/external-secrets/external-secrets/pkg/provider/aws/util"
-	"github.com/external-secrets/external-secrets/pkg/provider/metrics"
+	"github.com/external-secrets/external-secrets/pkg/utils"
 )
 
 // https://github.com/external-secrets/external-secrets/issues/644
@@ -39,6 +43,7 @@ var (
 	_               esv1beta1.SecretsClient = &ParameterStore{}
 	managedBy                               = "managed-by"
 	externalSecrets                         = "external-secrets"
+	logger                                  = ctrl.Log.WithName("provider").WithName("parameterstore")
 )
 
 // ParameterStore is a provider for AWS ParameterStore.
@@ -52,6 +57,7 @@ type ParameterStore struct {
 // see: https://docs.aws.amazon.com/sdk-for-go/api/service/ssm/ssmiface/
 type PMInterface interface {
 	GetParameterWithContext(aws.Context, *ssm.GetParameterInput, ...request.Option) (*ssm.GetParameterOutput, error)
+	GetParametersByPathWithContext(aws.Context, *ssm.GetParametersByPathInput, ...request.Option) (*ssm.GetParametersByPathOutput, error)
 	PutParameterWithContext(aws.Context, *ssm.PutParameterInput, ...request.Option) (*ssm.PutParameterOutput, error)
 	DescribeParametersWithContext(aws.Context, *ssm.DescribeParametersInput, ...request.Option) (*ssm.DescribeParametersOutput, error)
 	ListTagsForResourceWithContext(aws.Context, *ssm.ListTagsForResourceInput, ...request.Option) (*ssm.ListTagsForResourceOutput, error)
@@ -60,6 +66,7 @@ type PMInterface interface {
 
 const (
 	errUnexpectedFindOperator = "unexpected find operator"
+	errAccessDeniedException  = "AccessDeniedException"
 )
 
 // New constructs a ParameterStore Provider that is specific to a store.
@@ -80,7 +87,7 @@ func (pm *ParameterStore) getTagsByName(ctx aws.Context, ref *ssm.GetParameterOu
 	}
 
 	data, err := pm.client.ListTagsForResourceWithContext(ctx, &parameterTags)
-	metrics.ObserveAPICall(metrics.ProviderAWSPS, metrics.CallAWSPSListTagsForResource, err)
+	metrics.ObserveAPICall(constants.ProviderAWSPS, constants.CallAWSPSListTagsForResource, err)
 	if err != nil {
 		return nil, fmt.Errorf("error listing tags %w", err)
 	}
@@ -88,13 +95,13 @@ func (pm *ParameterStore) getTagsByName(ctx aws.Context, ref *ssm.GetParameterOu
 	return data.TagList, nil
 }
 
-func (pm *ParameterStore) DeleteSecret(ctx context.Context, remoteRef esv1beta1.PushRemoteRef) error {
+func (pm *ParameterStore) DeleteSecret(ctx context.Context, remoteRef esv1beta1.PushSecretRemoteRef) error {
 	secretName := remoteRef.GetRemoteKey()
 	secretValue := ssm.GetParameterInput{
 		Name: &secretName,
 	}
 	existing, err := pm.client.GetParameterWithContext(ctx, &secretValue)
-	metrics.ObserveAPICall(metrics.ProviderAWSPS, metrics.CallAWSPSGetParameter, err)
+	metrics.ObserveAPICall(constants.ProviderAWSPS, constants.CallAWSPSGetParameter, err)
 	var awsError awserr.Error
 	ok := errors.As(err, &awsError)
 	if err != nil && (!ok || awsError.Code() != ssm.ErrCodeParameterNotFound) {
@@ -117,7 +124,7 @@ func (pm *ParameterStore) DeleteSecret(ctx context.Context, remoteRef esv1beta1.
 			Name: &secretName,
 		}
 		_, err = pm.client.DeleteParameterWithContext(ctx, deleteInput)
-		metrics.ObserveAPICall(metrics.ProviderAWSPS, metrics.CallAWSPSDeleteParameter, err)
+		metrics.ObserveAPICall(constants.ProviderAWSPS, constants.CallAWSPSDeleteParameter, err)
 		if err != nil {
 			return fmt.Errorf("could not delete parameter %v: %w", secretName, err)
 		}
@@ -125,12 +132,27 @@ func (pm *ParameterStore) DeleteSecret(ctx context.Context, remoteRef esv1beta1.
 	return nil
 }
 
-func (pm *ParameterStore) PushSecret(ctx context.Context, value []byte, remoteRef esv1beta1.PushRemoteRef) error {
+func (pm *ParameterStore) PushSecret(ctx context.Context, secret *corev1.Secret, data esv1beta1.PushSecretData) error {
 	parameterType := "String"
 	overwrite := true
 
+	var (
+		value []byte
+		err   error
+	)
+	key := data.GetSecretKey()
+
+	if key == "" {
+		value, err = utils.JSONMarshal(secret.Data)
+		if err != nil {
+			return fmt.Errorf("failed to serialize secret content as JSON: %w", err)
+		}
+	} else {
+		value = secret.Data[key]
+	}
+
 	stringValue := string(value)
-	secretName := remoteRef.GetRemoteKey()
+	secretName := data.GetRemoteKey()
 
 	secretRequest := ssm.PutParameterInput{
 		Name:      &secretName,
@@ -144,7 +166,7 @@ func (pm *ParameterStore) PushSecret(ctx context.Context, value []byte, remoteRe
 	}
 
 	existing, err := pm.client.GetParameterWithContext(ctx, &secretValue)
-	metrics.ObserveAPICall(metrics.ProviderAWSPS, metrics.CallAWSPSGetParameter, err)
+	metrics.ObserveAPICall(constants.ProviderAWSPS, constants.CallAWSPSGetParameter, err)
 	var awsError awserr.Error
 	ok := errors.As(err, &awsError)
 	if err != nil && (!ok || awsError.Code() != ssm.ErrCodeParameterNotFound) {
@@ -200,7 +222,7 @@ func (pm *ParameterStore) setManagedRemoteParameter(ctx context.Context, secretR
 	}
 
 	_, err := pm.client.PutParameterWithContext(ctx, &secretRequest)
-	metrics.ObserveAPICall(metrics.ProviderAWSPS, metrics.CallAWSPSPutParameter, err)
+	metrics.ObserveAPICall(constants.ProviderAWSPS, constants.CallAWSPSPutParameter, err)
 	if err != nil {
 		return fmt.Errorf("unexpected error pushing parameter %v: %w", secretRequest.Name, err)
 	}
@@ -218,7 +240,60 @@ func (pm *ParameterStore) GetAllSecrets(ctx context.Context, ref esv1beta1.Exter
 	return nil, errors.New(errUnexpectedFindOperator)
 }
 
+// findByName requires `ssm:GetParametersByPath` IAM permission, but the `Resource` scope can be limited.
 func (pm *ParameterStore) findByName(ctx context.Context, ref esv1beta1.ExternalSecretFind) (map[string][]byte, error) {
+	matcher, err := find.New(*ref.Name)
+	if err != nil {
+		return nil, err
+	}
+	if ref.Path == nil {
+		ref.Path = aws.String("/")
+	}
+	data := make(map[string][]byte)
+	var nextToken *string
+	for {
+		it, err := pm.client.GetParametersByPathWithContext(
+			ctx,
+			&ssm.GetParametersByPathInput{
+				NextToken:      nextToken,
+				Path:           ref.Path,
+				Recursive:      aws.Bool(true),
+				WithDecryption: aws.Bool(true),
+			})
+		metrics.ObserveAPICall(constants.ProviderAWSPS, constants.CallAWSPSGetParametersByPath, err)
+		if err != nil {
+			/*
+				Check for AccessDeniedException when calling `GetParametersByPathWithContext`. If so,
+				use fallbackFindByName and `DescribeParametersWithContext`.
+				https://github.com/external-secrets/external-secrets/issues/1839#issuecomment-1489023522
+			*/
+			var awsError awserr.Error
+			if errors.As(err, &awsError) && awsError.Code() == errAccessDeniedException {
+				logger.Info("GetParametersByPath: access denied. using fallback to describe parameters. It is recommended to add ssm:GetParametersByPath permissions", "path", ref.Path)
+				return pm.fallbackFindByName(ctx, ref)
+			}
+			return nil, err
+		}
+		for _, param := range it.Parameters {
+			if !matcher.MatchName(*param.Name) {
+				continue
+			}
+			err = pm.fetchAndSet(ctx, data, *param.Name)
+			if err != nil {
+				return nil, err
+			}
+		}
+		nextToken = it.NextToken
+		if nextToken == nil {
+			break
+		}
+	}
+
+	return data, nil
+}
+
+// fallbackFindByName requires `ssm:DescribeParameters` IAM permission on `"Resource": "*"`.
+func (pm *ParameterStore) fallbackFindByName(ctx context.Context, ref esv1beta1.ExternalSecretFind) (map[string][]byte, error) {
 	matcher, err := find.New(*ref.Name)
 	if err != nil {
 		return nil, err
@@ -240,7 +315,7 @@ func (pm *ParameterStore) findByName(ctx context.Context, ref esv1beta1.External
 				NextToken:        nextToken,
 				ParameterFilters: pathFilter,
 			})
-		metrics.ObserveAPICall(metrics.ProviderAWSPS, metrics.CallAWSPSDescribeParameter, err)
+		metrics.ObserveAPICall(constants.ProviderAWSPS, constants.CallAWSPSDescribeParameter, err)
 		if err != nil {
 			return nil, err
 		}
@@ -258,17 +333,17 @@ func (pm *ParameterStore) findByName(ctx context.Context, ref esv1beta1.External
 			break
 		}
 	}
-
 	return data, nil
 }
 
+// findByTags requires ssm:DescribeParameters,tag:GetResources IAM permission on `"Resource": "*"`.
 func (pm *ParameterStore) findByTags(ctx context.Context, ref esv1beta1.ExternalSecretFind) (map[string][]byte, error) {
 	filters := make([]*ssm.ParameterStringFilter, 0)
 	for k, v := range ref.Tags {
 		filters = append(filters, &ssm.ParameterStringFilter{
-			Key:    utilpointer.String(fmt.Sprintf("tag:%s", k)),
-			Values: []*string{utilpointer.String(v)},
-			Option: utilpointer.String("Equals"),
+			Key:    utilpointer.To(fmt.Sprintf("tag:%s", k)),
+			Values: []*string{utilpointer.To(v)},
+			Option: utilpointer.To("Equals"),
 		})
 	}
 
@@ -289,7 +364,7 @@ func (pm *ParameterStore) findByTags(ctx context.Context, ref esv1beta1.External
 				ParameterFilters: filters,
 				NextToken:        nextToken,
 			})
-		metrics.ObserveAPICall(metrics.ProviderAWSPS, metrics.CallAWSPSDescribeParameter, err)
+		metrics.ObserveAPICall(constants.ProviderAWSPS, constants.CallAWSPSDescribeParameter, err)
 		if err != nil {
 			return nil, err
 		}
@@ -310,10 +385,10 @@ func (pm *ParameterStore) findByTags(ctx context.Context, ref esv1beta1.External
 
 func (pm *ParameterStore) fetchAndSet(ctx context.Context, data map[string][]byte, name string) error {
 	out, err := pm.client.GetParameterWithContext(ctx, &ssm.GetParameterInput{
-		Name:           utilpointer.String(name),
+		Name:           utilpointer.To(name),
 		WithDecryption: aws.Bool(true),
 	})
-	metrics.ObserveAPICall(metrics.ProviderAWSPS, metrics.CallAWSPSGetParameter, err)
+	metrics.ObserveAPICall(constants.ProviderAWSPS, constants.CallAWSPSGetParameter, err)
 	if err != nil {
 		return util.SanitizeErr(err)
 	}
@@ -331,7 +406,7 @@ func (pm *ParameterStore) GetSecret(ctx context.Context, ref esv1beta1.ExternalS
 	} else {
 		out, err = pm.getParameterValue(ctx, ref)
 	}
-	metrics.ObserveAPICall(metrics.ProviderAWSPS, metrics.CallAWSPSGetParameter, err)
+	metrics.ObserveAPICall(constants.ProviderAWSPS, constants.CallAWSPSGetParameter, err)
 	nsf := esv1beta1.NoSecretError{}
 	var nf *ssm.ParameterNotFound
 	if errors.As(err, &nf) || errors.As(err, &nsf) {
@@ -364,7 +439,7 @@ func (pm *ParameterStore) GetSecret(ctx context.Context, ref esv1beta1.ExternalS
 func (pm *ParameterStore) getParameterTags(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) (*ssm.GetParameterOutput, error) {
 	param := ssm.GetParameterOutput{
 		Parameter: &ssm.Parameter{
-			Name: &ref.Key,
+			Name: parameterNameWithVersion(ref),
 		},
 	}
 	tags, err := pm.getTagsByName(ctx, &param)
@@ -385,7 +460,7 @@ func (pm *ParameterStore) getParameterTags(ctx context.Context, ref esv1beta1.Ex
 
 func (pm *ParameterStore) getParameterValue(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) (*ssm.GetParameterOutput, error) {
 	out, err := pm.client.GetParameterWithContext(ctx, &ssm.GetParameterInput{
-		Name:           &ref.Key,
+		Name:           parameterNameWithVersion(ref),
 		WithDecryption: aws.Bool(true),
 	})
 
@@ -416,7 +491,16 @@ func (pm *ParameterStore) GetSecretMap(ctx context.Context, ref esv1beta1.Extern
 	return secretData, nil
 }
 
-func (pm *ParameterStore) Close(ctx context.Context) error {
+func parameterNameWithVersion(ref esv1beta1.ExternalSecretDataRemoteRef) *string {
+	name := ref.Key
+	if ref.Version != "" {
+		// see docs: https://docs.aws.amazon.com/systems-manager/latest/userguide/sysman-paramstore-versions.html#reference-parameter-version
+		name += ":" + ref.Version
+	}
+	return &name
+}
+
+func (pm *ParameterStore) Close(_ context.Context) error {
 	return nil
 }
 
