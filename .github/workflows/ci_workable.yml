@@ -3,13 +3,13 @@ name: External Secrets Workable CI
 on:
   push:
     branches:
-      - main
+      - workable_main
       - workable_feature/*
   pull_request: 
     types:
       - opened
     branches:
-      - main
+      - workable_main
       - workable_feature/*
   workflow_dispatch:
     inputs:
@@ -20,7 +20,7 @@ on:
       manual_build_branch:
         description: "The branch the image should be built from"
         type: string
-        default: "main"
+        default: "workable_main"
         required: true
       push_to_stg:
         description: "Build and push image to staging GCR"
