@@ -28,21 +28,21 @@ require (
 	github.com/hashicorp/vault/api/auth/kubernetes v0.5.0
 	github.com/hashicorp/vault/api/auth/ldap v0.5.0
 	github.com/huandu/xstrings v1.4.0 // indirect
-	github.com/lestrrat-go/jwx v1.2.27
+	github.com/lestrrat-go/jwx v1.2.29
 	github.com/onsi/ginkgo/v2 v2.13.2
 	github.com/onsi/gomega v1.29.0
 	github.com/oracle/oci-go-sdk/v65 v65.55.0
 	github.com/prometheus/client_golang v1.18.0
 	github.com/prometheus/client_model v0.5.0
 	github.com/spf13/cobra v1.8.0
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.9.0
 	github.com/tidwall/gjson v1.17.0
 	github.com/xanzy/go-gitlab v0.95.2
 	github.com/yandex-cloud/go-genproto v0.0.0-20231228083538-d09e2496c348
 	github.com/yandex-cloud/go-sdk v0.0.0-20231220065212-8e23a0060063
 	github.com/youmark/pkcs8 v0.0.0-20201027041543-1326539a0a0a
 	go.uber.org/zap v1.26.0
-	golang.org/x/crypto v0.17.0
+	golang.org/x/crypto v0.21.0
 	golang.org/x/oauth2 v0.15.0
 	google.golang.org/api v0.155.0
 	google.golang.org/genproto v0.0.0-20240102182953-50ed04b92917
@@ -223,9 +223,9 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20240103183307-be819d1f06fc
 	golang.org/x/mod v0.14.0 // indirect
-	golang.org/x/net v0.19.0 // indirect
-	golang.org/x/sys v0.16.0 // indirect
-	golang.org/x/term v0.16.0 // indirect
+	golang.org/x/net v0.21.0 // indirect
+	golang.org/x/sys v0.18.0 // indirect
+	golang.org/x/term v0.18.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	golang.org/x/tools v0.16.1 // indirect
