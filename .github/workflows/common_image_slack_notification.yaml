@@ -40,7 +40,7 @@ on:
         type: boolean
 
     secrets:
-      SLACK_WEBHOOK:
+      SLACK_WORKABLE_APP_OAUTH_TOKEN:
         required: true
 
 env: 
@@ -52,7 +52,7 @@ env:
   SLACK_ICON_EMOJI_FAILURE: ':fail:'
   SLACK_COLOR_FAILURE: '#FF0000'
   SLACK_COLOR_SUCCESS: '#00CC00'
-  SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+  SLACK_CHANNEL: sre_bots
 
 jobs:
 
@@ -85,26 +85,47 @@ jobs:
           console.log(imageList.trim());
           core.setOutput('image_list', imageList);
 
-    - name: send slack success message
-      if: inputs.success
-      uses: rtCamp/action-slack-notify@v2
-      env:
-        SLACK_USERNAME: ${{ env.SLACK_USERNAME }}
-        SLACK_ICON: ${{ env.SLACK_ICON }}
-        SLACK_ICON_EMOJI: ${{ env.SLACK_ICON_EMOJI_SUCCESS }}
-        SLACK_COLOR:  ${{ env.SLACK_COLOR_SUCCESS }}
-        SLACK_CHANNEL: sre_bots
-        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-        SLACK_MESSAGE: Image(s) ${{ steps.prepare-image-list.outputs.image_list }} built/pushed successfully
+    - name: construct slack payload
+      if: ${{ always() && !cancelled() }}
+      id: set-slack-payload
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const failureText = "Image(s) ${{ steps.prepare-image-list.outputs.image_list }} FAILED to be built/pushed"
+          const successText = "Image(s) ${{ steps.prepare-image-list.outputs.image_list }} built/pushed successfully"
+          core.setOutput('payload', {
+            "text": ${{ inputs.success }} ? failureText : successText,
+            "username": "${{ env.SLACK_USERNAME }}",
+            "icon_emoji": ${{ inputs.success }} ? env.SLACK_ICON_EMOJI_FAILURE : env.SLACK_ICON_EMOJI_SUCCESS,
+            "attachments": [
+                "mrkdwn_in": ["text"],
+                "color": ${{ inputs.success }} ? env.SLACK_COLOR_FAILURE : env.SLACK_COLOR_SUCCESS,
+                "fields": [
+                  {
+                    "title": "Repository",
+                    "value": "${{ github.repository }}",
+                    "short": true
+                  },
+                  {
+                    "title": "Commit",
+                    "value": "${{ github.sha }}",
+                    "short": true
+                  },
+                  {
+                    "title": "Workflow Run URL",
+                    "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                    "short": true
+                  }
+                ]
+              }
+            ]
+          })
 
-    - name: send slack failure message
-      if: ${{ !inputs.success }}
-      uses: rtCamp/action-slack-notify@v2
+    - name: notify slack
+      if: ${{ always() && !cancelled() && steps.set-slack-payload.outcome == 'success' }}
+      uses: slackapi/slack-github-action@v1
+      with:
+        channel-id: ${{ env.SLACK_CHANNEL}}
+        payload: ${{ steps.set-slack-payload.outputs.payload }}
       env:
-        SLACK_USERNAME: ${{ env.SLACK_USERNAME }}
-        SLACK_ICON: ${{ env.SLACK_ICON }}
-        SLACK_ICON_EMOJI: ${{ env.SLACK_ICON_EMOJI_FAILURE }}
-        SLACK_COLOR: ${{ env.SLACK_COLOR_FAILURE }}
-        SLACK_CHANNEL: sre_bots
-        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-        SLACK_MESSAGE: Image(s) ${{ steps.prepare-image-list.outputs.image_list }} FAILED to be built/pushed
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_WORKABLE_APP_OAUTH_TOKEN }}

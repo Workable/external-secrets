@@ -262,7 +262,7 @@ jobs:
       prd_image_build: ${{ inputs.push_to_prd == true }}
       success: true
     secrets:
-      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+      SLACK_WORKABLE_APP_OAUTH_TOKEN: ${{ secrets.SLACK_WORKABLE_APP_OAUTH_TOKEN }}
 
   send-slack-failure:
     name: Send Slack failure message
@@ -279,4 +279,4 @@ jobs:
       prd_image_build: ${{ inputs.push_to_prd == true }}
       success: false
     secrets:
-      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+      SLACK_WORKABLE_APP_OAUTH_TOKEN: ${{ secrets.SLACK_WORKABLE_APP_OAUTH_TOKEN }}
