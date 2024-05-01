@@ -36,9 +36,9 @@ on:
         required: true
         type: string
       image_tag:
-       description: the tag of the image to be built
-       required: true
-       type: string
+        description: the tag of the image to be built
+        required: true
+        type: string
       sre_image_build:
         description: whether to build the sre image
         required: false
@@ -101,7 +101,6 @@ env:
   PRODUCTION_GCR_PROJECT: production-artifacts-0b0d
 
 jobs:
-
   build_images:
     name: build image(s)
     environment: ${{ inputs.environment }}
@@ -119,10 +118,9 @@ jobs:
         with:
           ref: ${{ inputs.build_branch }}
 
-
       - name: set up gcloud
         uses: google-github-actions/setup-gcloud@v0.6.0
-      
+
       - name: set up docker buildx
         uses: docker/setup-buildx-action@v2
         with:
@@ -134,7 +132,7 @@ jobs:
           registry: ${{ env.REPOSITORY }}
           username: _json_key
           password: ${{ secrets.STAGING_GCR_SA }}
-      
+
       - name: build and push to local registry
         uses: docker/build-push-action@v3
         with:
