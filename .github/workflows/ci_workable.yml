@@ -5,7 +5,7 @@ on:
     branches:
       - main
       - workable_feature/*
-  pull_request: 
+  pull_request:
     types:
       - opened
     branches:
@@ -32,12 +32,11 @@ on:
         type: boolean
         default: false
         required: true
-  
 
 env:
   # Common versions
-  GOLANGCI_VERSION: 'v1.49.0'
-  KUBERNETES_VERSION: '1.24.x'
+  GOLANGCI_VERSION: "v1.49.0"
+  KUBERNETES_VERSION: "1.24.x"
 
   # Sonar
   SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -214,7 +213,7 @@ jobs:
           fi
           echo "ref-for-name=${ACTUAL_BRANCH#workable_feature/*}" >> $GITHUB_OUTPUT
           echo "ref-for-checkout=$ACTUAL_BRANCH" >> $GITHUB_OUTPUT
-  
+
   set-tag:
     if: github.repository == 'Workable/external-secrets'
     name: set the image tag
@@ -262,14 +261,14 @@ jobs:
       prd_image_build: ${{ inputs.push_to_prd == true }}
       success: true
     secrets:
-      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+      SLACK_WORKABLE_APP_OAUTH_TOKEN: ${{ secrets.SLACK_WORKABLE_APP_OAUTH_TOKEN }}
 
   send-slack-failure:
     name: Send Slack failure message
     if: failure() && github.repository == 'Workable/external-secrets'
     needs:
       - set-tag
-      - build-and-push-docker-image   
+      - build-and-push-docker-image
     uses: Workable/external-secrets/.github/workflows/common_image_slack_notification.yaml@main
     with:
       environment: Workable
@@ -279,4 +278,4 @@ jobs:
       prd_image_build: ${{ inputs.push_to_prd == true }}
       success: false
     secrets:
-      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+      SLACK_WORKABLE_APP_OAUTH_TOKEN: ${{ secrets.SLACK_WORKABLE_APP_OAUTH_TOKEN }}

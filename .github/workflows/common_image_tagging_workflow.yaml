@@ -28,7 +28,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.set-tag.outputs.tag }}
-    
     steps:
       - name: validate inputs
         if: inputs.push_to_prd && ( inputs.tag == '' || inputs.ref != 'main' )
