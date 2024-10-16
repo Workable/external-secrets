@@ -70,6 +70,12 @@ func (c *client) GetSecret(ctx context.Context, ref esv1.ExternalSecretDataRemot
 		}
 	}
 
+	// Replace symlinks
+	data, err = c.resolveSymlink(ctx, data)
+	if err != nil {
+		return nil, err
+	}
+
 	return getSecretValue(data, ref.Property)
 }
 
