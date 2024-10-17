@@ -1,18 +1,17 @@
-name: CI
+name: External Secrets Workable CI
 
 on:
   push:
+    tags:
+      - workable-*
+  pull_request:
     branches:
-      - main
-  pull_request: {}
+      - workable-*
 
 env:
   # Common versions
   GOLANGCI_VERSION: 'v2.4.0'
   KUBERNETES_VERSION: '1.33.x'
-
-  # Sonar
-  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
 permissions:
   contents: read
@@ -26,9 +25,6 @@ jobs:
     outputs:
       noop: ${{ steps.noop.outputs.should_skip }}
     steps:
-      - uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
-        with:
-          egress-policy: audit
       - name: Detect No-op Changes
         id: noop
         uses: fkirc/skip-duplicate-actions@f75f66ce1886f00957d99748a42c724f4330bdcf # v5.3.1
@@ -47,14 +43,11 @@ jobs:
     if: needs.detect-noop.outputs.noop != 'true' && github.ref != 'refs/heads/main'
 
     steps:
-      - uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
-        with:
-          egress-policy: audit
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup Go
-        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
         id: setup-go
         with:
           go-version-file: "go.mod"
@@ -70,35 +63,15 @@ jobs:
           skip-pkg-cache: true
           skip-build-cache: true
 
-  license-check:
-    permissions:
-      contents: read  # for actions/checkout to fetch code
-      pull-requests: read  # for golangci/golangci-lint-action to fetch pull requests
-    runs-on: ubuntu-latest
-    needs: detect-noop
-    if: needs.detect-noop.outputs.noop != 'true' && github.ref != 'refs/heads/main'
-
-    steps:
-      - uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
-        with:
-          egress-policy: audit
-      - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-      - name: Check License Headers
-        uses: apache/skywalking-eyes/header@5c5b974209f0de5d905f37deb69369068ebfc15c # v0.7.0
-
   check-diff:
     runs-on: ubuntu-latest
     needs: detect-noop
     if: needs.detect-noop.outputs.noop != 'true' && github.ref != 'refs/heads/main'
 
     steps:
-      - uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
-        with:
-          egress-policy: audit
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-      - uses: hashicorp/setup-terraform@c529327889820530c60b4ce5bbc8d6099e166666 # v3
+
       - name: Setup Go
         uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         id: setup-go
@@ -124,9 +97,6 @@ jobs:
     if: needs.detect-noop.outputs.noop != 'true'
 
     steps:
-      - uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
-        with:
-          egress-policy: audit
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -154,6 +124,7 @@ jobs:
           make test
 
       - name: Publish Unit Test Coverage
+        if: false
         uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -162,39 +133,75 @@ jobs:
           file: ./cover.out
 
   publish-artifacts:
-    needs: detect-noop
-    if: needs.detect-noop.outputs.noop != 'true'
-    uses: ./.github/workflows/publish.yml
+    needs: [lint, check-diff, unit-tests]
+    if: ${{ needs.detect-noop.outputs.noop != 'true' && startsWith(github.ref, 'refs/tags/workable-') }}
     permissions:
-      contents: read  #actions/checkout
-      packages: write #for publishing artifacts
-      id-token: write #for keyless sign
-    strategy:
-      matrix:
-        include:
-        - dockerfile: "Dockerfile"
-          build-args: "CGO_ENABLED=0"
-          build-arch: "amd64 arm64 s390x ppc64le"
-          build-platform: "linux/amd64,linux/arm64,linux/s390x,linux/ppc64le"
-          tag-suffix: "" # distroless
-        - dockerfile: "Dockerfile.ubi"
-          build-args: "CGO_ENABLED=0"
-          build-arch: "amd64 arm64 ppc64le"
-          build-platform: "linux/amd64,linux/arm64,linux/ppc64le"
-          tag-suffix: "-ubi"
-        - dockerfile: "Dockerfile.ubi"
-          build-args: "CGO_ENABLED=0 GOEXPERIMENT=boringcrypto"
-          build-arch: "amd64 ppc64le"
-          build-platform: "linux/amd64,linux/ppc64le"
-          tag-suffix: "-ubi-boringssl"
-    with:
-      dockerfile: ${{ matrix.dockerfile }}
-      tag-suffix: ${{ matrix.tag-suffix }}
-      image-name: ghcr.io/${{ github.repository }}
-      build-platform: ${{ matrix.build-platform }}
-      build-args: ${{ matrix.build-args }}
-      build-arch: ${{ matrix.build-arch }}
-      ref: ${{ github.ref }}
-    secrets:
-      IS_FORK: ${{ secrets.GHCR_USERNAME }} # this is just a secret to verify it is a fork or not, no other utility
+      id-token: write
+      contents: read
+    runs-on: ubuntu-latest
+    environment: Workable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
+      - name: Get image tag
+        id: container-info
+        run: |
+          echo "image-tag=${GITHUB_REF#refs/tags/workable-}" >> $GITHUB_OUTPUT
+
+      - name: Build image
+        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6.9.1
+        with:
+          context: .
+          file: Dockerfile.standalone
+          push: false
+          tags: Workable/external-secrets:${{ steps.container-info.outputs.image-tag }}
+          provenance: false
+
+      # DISTRIBUTION OF SRE IMAGE
+      - name: Login to sre registry
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: us-docker.pkg.dev
+          username: _json_key
+          password: ${{ secrets.SRE_GCR_SA }}
+
+      - name: Push image to sre registry
+        env:
+          REGISTRY: us-docker.pkg.dev/sre-artifacts-20e4/gcr.io
+        run: |
+          docker tag Workable/external-secrets:${{ steps.container-info.outputs.image-tag }} \
+            ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
+          docker push ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
+
+      # DISTRIBUTION OF STAGING IMAGE
+      - name: Login to staging registry
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: us-docker.pkg.dev
+          username: _json_key
+          password: ${{ secrets.STAGING_GCR_SA }}
+
+      - name: Push image to staging registry
+        env:
+          REGISTRY: us-docker.pkg.dev/staging-artifacts-786a/gcr.io
+        run: |
+          docker tag Workable/external-secrets:${{ steps.container-info.outputs.image-tag }} \
+            ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
+          docker push ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
+
+      # DISTRIBUTION OF PRODUCTION IMAGE
+      - name: Login to production registry
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: us-docker.pkg.dev
+          username: _json_key
+          password: ${{ secrets.PRODUCTION_GCR_SA }}
+
+      - name: Push image to production registry
+        env:
+          REGISTRY: us-docker.pkg.dev/production-artifacts-0b0d/gcr.io
+        run: |
+          docker tag Workable/external-secrets:${{ steps.container-info.outputs.image-tag }} \
+            ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
+          docker push ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
