@@ -1,19 +1,17 @@
-name: CI
+name: External Secrets Workable CI
 
 on:
   push:
+    tags:
+      - workable-*
+  pull_request:
     branches:
-      - main
-      - release-*
-  pull_request: {}
+      - workable-*
 
 env:
   # Common versions
   GOLANGCI_VERSION: 'v1.61.0'
   KUBERNETES_VERSION: '1.31.x'
-
-  # Sonar
-  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
 permissions:
   contents: read
@@ -126,6 +124,7 @@ jobs:
           make test
 
       - name: Publish Unit Test Coverage
+        if: false
         uses: codecov/codecov-action@7f8b4b4bde536c465e797be725718b88c5d95e0e # v5.1.1
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -134,39 +133,75 @@ jobs:
           file: ./cover.out
 
   publish-artifacts:
-    needs: detect-noop
-    if: needs.detect-noop.outputs.noop != 'true'
-    uses: ./.github/workflows/publish.yml
+    needs: [lint, check-diff, unit-tests]
+    if: ${{ needs.detect-noop.outputs.noop != 'true' && startsWith(github.ref, 'refs/tags/workable-') }}
     permissions:
       id-token: write
       contents: read
-    strategy:
-      matrix:
-        include:
-        - dockerfile: "Dockerfile"
-          build-args: "CGO_ENABLED=0"
-          build-arch: "amd64 arm64 s390x ppc64le"
-          build-platform: "linux/amd64,linux/arm64,linux/s390x,linux/ppc64le"
-          tag-suffix: "" # distroless
-        - dockerfile: "Dockerfile.ubi"
-          build-args: "CGO_ENABLED=0"
-          build-arch: "amd64 arm64 ppc64le"
-          build-platform: "linux/amd64,linux/arm64,linux/ppc64le"
-          tag-suffix: "-ubi"
-        - dockerfile: "Dockerfile.ubi"
-          build-args: "CGO_ENABLED=0 GOEXPERIMENT=boringcrypto"
-          build-arch: "amd64 ppc64le"
-          build-platform: "linux/amd64,linux/ppc64le"
-          tag-suffix: "-ubi-boringssl"
-    with:
-      dockerfile: ${{ matrix.dockerfile }}
-      tag-suffix: ${{ matrix.tag-suffix }}
-      image-name: ghcr.io/${{ github.repository }}
-      build-platform: ${{ matrix.build-platform }}
-      build-args: ${{ matrix.build-args }}
-      build-arch: ${{ matrix.build-arch }}
-      ref: ${{ github.ref }}
-    secrets:
-      GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+    runs-on: ubuntu-latest
+    environment: Workable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
 
+      - name: Get image tag
+        id: container-info
+        run: |
+          echo "image-tag=${GITHUB_REF#refs/tags/workable-}" >> $GITHUB_OUTPUT
+
+      - name: Build image
+        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6.9.1
+        with:
+          context: .
+          file: Dockerfile.standalone
+          push: false
+          tags: Workable/external-secrets:${{ steps.container-info.outputs.image-tag }}
+          provenance: false
+
+      # DISTRIBUTION OF SRE IMAGE
+      - name: Login to sre registry
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: us-docker.pkg.dev
+          username: _json_key
+          password: ${{ secrets.SRE_GCR_SA }}
+
+      - name: Push image to sre registry
+        env:
+          REGISTRY: us-docker.pkg.dev/sre-artifacts-20e4/gcr.io
+        run: |
+          docker tag Workable/external-secrets:${{ steps.container-info.outputs.image-tag }} \
+            ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
+          docker push ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
+
+      # DISTRIBUTION OF STAGING IMAGE
+      - name: Login to staging registry
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: us-docker.pkg.dev
+          username: _json_key
+          password: ${{ secrets.STAGING_GCR_SA }}
+
+      - name: Push image to staging registry
+        env:
+          REGISTRY: us-docker.pkg.dev/staging-artifacts-786a/gcr.io
+        run: |
+          docker tag Workable/external-secrets:${{ steps.container-info.outputs.image-tag }} \
+            ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
+          docker push ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
+
+      # DISTRIBUTION OF PRODUCTION IMAGE
+      - name: Login to production registry
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: us-docker.pkg.dev
+          username: _json_key
+          password: ${{ secrets.PRODUCTION_GCR_SA }}
+
+      - name: Push image to production registry
+        env:
+          REGISTRY: us-docker.pkg.dev/production-artifacts-0b0d/gcr.io
+        run: |
+          docker tag Workable/external-secrets:${{ steps.container-info.outputs.image-tag }} \
+            ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
+          docker push ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
