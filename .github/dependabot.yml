@@ -2,26 +2,31 @@ version: 2
 updates:
 
   - package-ecosystem: "github-actions"
+    target-branch: "workable_main"
     directory: "/"
     schedule:
       interval: "weekly"
 
   - package-ecosystem: "docker"
+    target-branch: "workable_main"
     directory: "/"
     schedule:
       interval: "weekly"
 
   - package-ecosystem: docker
+    target-branch: "workable_main"
     directory: /e2e
     schedule:
       interval: weekly
 
   - package-ecosystem: docker
+    target-branch: "workable_main"
     directory: /hack/api-docs
     schedule:
       interval: weekly
 
   - package-ecosystem: pip
+    target-branch: "workable_main"
     directory: /hack/api-docs
     schedule:
       interval: weekly
