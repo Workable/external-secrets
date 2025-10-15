@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,10 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package gitlab implements a GitLab provider for External Secrets.
 package gitlab
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
@@ -24,10 +29,10 @@ import (
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	"github.com/external-secrets/external-secrets/pkg/constants"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
 	"github.com/external-secrets/external-secrets/pkg/metrics"
-	"github.com/external-secrets/external-secrets/pkg/utils"
 )
 
 // Provider satisfies the provider interface.
@@ -36,7 +41,7 @@ type Provider struct{}
 // gitlabBase satisfies the provider.SecretsClient interface.
 type gitlabBase struct {
 	kube      kclient.Client
-	store     *esv1beta1.GitlabProvider
+	store     *esv1.GitlabProvider
 	storeKind string
 	namespace string
 
@@ -45,13 +50,14 @@ type gitlabBase struct {
 	groupVariablesClient   GroupVariablesClient
 }
 
-// Capabilities return the provider supported capabilities (ReadOnly, WriteOnly, ReadWrite).
-func (g *Provider) Capabilities() esv1beta1.SecretStoreCapabilities {
-	return esv1beta1.SecretStoreReadOnly
+// Capabilities returns the provider supported capabilities (ReadOnly, WriteOnly, ReadWrite).
+func (g *Provider) Capabilities() esv1.SecretStoreCapabilities {
+	return esv1.SecretStoreReadOnly
 }
 
-// Method on GitLab Provider to set up projectVariablesClient with credentials, populate projectID and environment.
-func (g *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, kube kclient.Client, namespace string) (esv1beta1.SecretsClient, error) {
+// NewClient creates a new GitLab client with the given store configuration.
+// It sets up the project variables client with credentials and populates projectID and environment.
+func (g *Provider) NewClient(ctx context.Context, store esv1.GenericStore, kube kclient.Client, namespace string) (esv1.SecretsClient, error) {
 	storeSpec := store.GetSpec()
 	if storeSpec == nil || storeSpec.Provider == nil || storeSpec.Provider.Gitlab == nil {
 		return nil, errors.New("no store type or wrong store type")
@@ -76,7 +82,7 @@ func (g *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, 
 	return gl, nil
 }
 
-func (g *gitlabBase) getClient(ctx context.Context, provider *esv1beta1.GitlabProvider) (*gitlab.Client, error) {
+func (g *gitlabBase) getClient(ctx context.Context, provider *esv1.GitlabProvider) (*gitlab.Client, error) {
 	credentials, err := g.getAuth(ctx)
 	if err != nil {
 		return nil, err
@@ -86,6 +92,33 @@ func (g *gitlabBase) getClient(ctx context.Context, provider *esv1beta1.GitlabPr
 	var opts []gitlab.ClientOptionFunc
 	if provider.URL != "" {
 		opts = append(opts, gitlab.WithBaseURL(provider.URL))
+	}
+
+	if len(provider.CABundle) > 0 || provider.CAProvider != nil {
+		caCertPool := x509.NewCertPool()
+		ca, err := esutils.FetchCACertFromSource(ctx, esutils.CreateCertOpts{
+			CABundle:   provider.CABundle,
+			CAProvider: provider.CAProvider,
+			StoreKind:  g.storeKind,
+			Namespace:  g.namespace,
+			Client:     g.kube,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to read ca bundle: %w", err)
+		}
+		if ok := caCertPool.AppendCertsFromPEM(ca); !ok {
+			return nil, errors.New("failed to append ca bundle")
+		}
+
+		transport := &http.Transport{
+			TLSClientConfig: &tls.Config{
+				RootCAs:    caCertPool,
+				MinVersion: tls.VersionTLS12,
+			},
+		}
+
+		httpClient := &http.Client{Transport: transport}
+		opts = append(opts, gitlab.WithHTTPClient(httpClient))
 	}
 
 	// ClientOptionFunc from the gitlab package can be mapped with the CRD
@@ -100,7 +133,7 @@ func (g *gitlabBase) getClient(ctx context.Context, provider *esv1beta1.GitlabPr
 	return client, nil
 }
 
-func (g *gitlabBase) getVariables(ref esv1beta1.ExternalSecretDataRemoteRef, vopts *gitlab.GetProjectVariableOptions) (*gitlab.ProjectVariable, *gitlab.Response, error) {
+func (g *gitlabBase) getVariables(ref esv1.ExternalSecretDataRemoteRef, vopts *gitlab.GetProjectVariableOptions) (*gitlab.ProjectVariable, *gitlab.Response, error) {
 	data, resp, err := g.projectVariablesClient.GetVariable(g.store.ProjectID, ref.Key, vopts)
 	metrics.ObserveAPICall(constants.ProviderGitLab, constants.CallGitLabProjectVariableGet, err)
 	if err != nil {
@@ -119,11 +152,12 @@ func (g *gitlabBase) getVariables(ref esv1beta1.ExternalSecretDataRemoteRef, vop
 	return data, resp, nil
 }
 
-func (g *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnings, error) {
+// ValidateStore validates the GitLab store configuration.
+func (g *Provider) ValidateStore(store esv1.GenericStore) (admission.Warnings, error) {
 	storeSpec := store.GetSpec()
 	gitlabSpec := storeSpec.Provider.Gitlab
 	accessToken := gitlabSpec.Auth.SecretRef.AccessToken
-	err := utils.ValidateSecretSelector(store, accessToken)
+	err := esutils.ValidateSecretSelector(store, accessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +182,7 @@ func (g *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnin
 }
 
 func init() {
-	esv1beta1.Register(&Provider{}, &esv1beta1.SecretStoreProvider{
-		Gitlab: &esv1beta1.GitlabProvider{},
-	})
+	esv1.Register(&Provider{}, &esv1.SecretStoreProvider{
+		Gitlab: &esv1.GitlabProvider{},
+	}, esv1.MaintenanceStatusMaintained)
 }

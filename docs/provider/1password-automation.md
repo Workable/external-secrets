@@ -2,6 +2,11 @@
 
 External Secrets Operator integrates with [1Password Secrets Automation](https://1password.com/products/secrets/) for secret management.
 
+## Deprecation
+
+Consider using [1Password SDK provider](1password-sdk.md) instead. It uses an official [SDK for 1Password](https://developer.1password.com/docs/sdks) created
+by 1Password. It's feature complete and has parity with this provider's capabilities.
+
 ### Important note about this documentation
 
 _**The 1Password API calls the entries in vaults 'Items'. These docs use the same term.**_
@@ -23,7 +28,7 @@ _**The 1Password API calls the entries in vaults 'Items'. These docs use the sam
 * Ordered vaults
     * Specify an ordered list of vaults in a SecretStore and the value will be sourced from the first vault with a matching Item.
     * If no matching Item is found, an error is returned.
-    * This supports having a default or shared set of values that can also be overriden for specific environments.
+    * This supports having a default or shared set of values that can also be overridden for specific environments.
 * `dataFrom`:
     * `find.path` is equated to Item Title.
     * `find.name.regexp` is equated to field Labels.

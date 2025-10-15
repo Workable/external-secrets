@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package ecr provides functionality for generating authentication tokens for AWS Elastic Container Registry.
 package ecr
 
 import (
@@ -22,20 +25,27 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/ecr"
-	"github.com/aws/aws-sdk-go/service/ecr/ecriface"
-	"github.com/aws/aws-sdk-go/service/ecrpublic"
-	"github.com/aws/aws-sdk-go/service/ecrpublic/ecrpubliciface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
+	"github.com/aws/aws-sdk-go-v2/service/ecrpublic"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	genv1alpha1 "github.com/external-secrets/external-secrets/apis/generators/v1alpha1"
 	awsauth "github.com/external-secrets/external-secrets/pkg/provider/aws/auth"
 )
 
+type ecrAPI interface {
+	GetAuthorizationToken(ctx context.Context, params *ecr.GetAuthorizationTokenInput, optFuncs ...func(*ecr.Options)) (*ecr.GetAuthorizationTokenOutput, error)
+}
+
+type ecrPublicAPI interface {
+	GetAuthorizationToken(ctx context.Context, params *ecrpublic.GetAuthorizationTokenInput, optFuncs ...func(*ecrpublic.Options)) (*ecrpublic.GetAuthorizationTokenOutput, error)
+}
+
+// Generator implements ECR token generation functionality.
 type Generator struct{}
 
 const (
@@ -46,11 +56,13 @@ const (
 	errGetPublicToken  = "unable to get public authorization token: %w"
 )
 
+// Generate creates an authentication token for AWS ECR.
 func (g *Generator) Generate(ctx context.Context, jsonSpec *apiextensions.JSON, kube client.Client, namespace string) (map[string][]byte, genv1alpha1.GeneratorProviderState, error) {
 	return g.generate(ctx, jsonSpec, kube, namespace, ecrPrivateFactory, ecrPublicFactory)
 }
 
-func (g *Generator) Cleanup(ctx context.Context, jsonSpec *apiextensions.JSON, _ genv1alpha1.GeneratorProviderState, crClient client.Client, namespace string) error {
+// Cleanup performs any necessary cleanup after token generation.
+func (g *Generator) Cleanup(_ context.Context, _ *apiextensions.JSON, _ genv1alpha1.GeneratorProviderState, _ client.Client, _ string) error {
 	return nil
 }
 
@@ -69,11 +81,11 @@ func (g *Generator) generate(
 	if err != nil {
 		return nil, nil, fmt.Errorf(errParseSpec, err)
 	}
-	sess, err := awsauth.NewGeneratorSession(
+	cfg, err := awsauth.NewGeneratorSession(
 		ctx,
-		esv1beta1.AWSAuth{
-			SecretRef: (*esv1beta1.AWSAuthSecretRef)(res.Spec.Auth.SecretRef),
-			JWTAuth:   (*esv1beta1.AWSJWTAuth)(res.Spec.Auth.JWTAuth),
+		esv1.AWSAuth{
+			SecretRef: (*esv1.AWSAuthSecretRef)(res.Spec.Auth.SecretRef),
+			JWTAuth:   (*esv1.AWSJWTAuth)(res.Spec.Auth.JWTAuth),
 		},
 		res.Spec.Role,
 		res.Spec.Region,
@@ -86,15 +98,15 @@ func (g *Generator) generate(
 	}
 
 	if res.Spec.Scope == "public" {
-		return fetchECRPublicToken(sess, ecrPublicFunc)
+		return fetchECRPublicToken(ctx, cfg, ecrPublicFunc)
 	}
 
-	return fetchECRPrivateToken(sess, ecrPrivateFunc)
+	return fetchECRPrivateToken(ctx, cfg, ecrPrivateFunc)
 }
 
-func fetchECRPrivateToken(sess *session.Session, ecrPrivateFunc ecrPrivateFactoryFunc) (map[string][]byte, genv1alpha1.GeneratorProviderState, error) {
-	client := ecrPrivateFunc(sess)
-	out, err := client.GetAuthorizationToken(&ecr.GetAuthorizationTokenInput{})
+func fetchECRPrivateToken(ctx context.Context, cfg *aws.Config, ecrPrivateFunc ecrPrivateFactoryFunc) (map[string][]byte, genv1alpha1.GeneratorProviderState, error) {
+	client := ecrPrivateFunc(cfg)
+	out, err := client.GetAuthorizationToken(ctx, &ecr.GetAuthorizationTokenInput{})
 	if err != nil {
 		return nil, nil, fmt.Errorf(errGetPrivateToken, err)
 	}
@@ -121,9 +133,9 @@ func fetchECRPrivateToken(sess *session.Session, ecrPrivateFunc ecrPrivateFactor
 	}, nil, nil
 }
 
-func fetchECRPublicToken(sess *session.Session, ecrPublicFunc ecrPublicFactoryFunc) (map[string][]byte, genv1alpha1.GeneratorProviderState, error) {
-	client := ecrPublicFunc(sess)
-	out, err := client.GetAuthorizationToken(&ecrpublic.GetAuthorizationTokenInput{})
+func fetchECRPublicToken(ctx context.Context, cfg *aws.Config, ecrPublicFunc ecrPublicFactoryFunc) (map[string][]byte, genv1alpha1.GeneratorProviderState, error) {
+	client := ecrPublicFunc(cfg)
+	out, err := client.GetAuthorizationToken(ctx, &ecrpublic.GetAuthorizationTokenInput{})
 	if err != nil {
 		return nil, nil, fmt.Errorf(errGetPublicToken, err)
 	}
@@ -145,15 +157,19 @@ func fetchECRPublicToken(sess *session.Session, ecrPublicFunc ecrPublicFactoryFu
 	}, nil, nil
 }
 
-type ecrPrivateFactoryFunc func(aws *session.Session) ecriface.ECRAPI
-type ecrPublicFactoryFunc func(aws *session.Session) ecrpubliciface.ECRPublicAPI
+type ecrPrivateFactoryFunc func(aws *aws.Config) ecrAPI
+type ecrPublicFactoryFunc func(aws *aws.Config) ecrPublicAPI
 
-func ecrPrivateFactory(aws *session.Session) ecriface.ECRAPI {
-	return ecr.New(aws)
+func ecrPrivateFactory(cfg *aws.Config) ecrAPI {
+	return ecr.NewFromConfig(*cfg, func(o *ecr.Options) {
+		o.EndpointResolverV2 = ecrCustomEndpointResolver{}
+	})
 }
 
-func ecrPublicFactory(aws *session.Session) ecrpubliciface.ECRPublicAPI {
-	return ecrpublic.New(aws)
+func ecrPublicFactory(cfg *aws.Config) ecrPublicAPI {
+	return ecrpublic.NewFromConfig(*cfg, func(o *ecrpublic.Options) {
+		o.EndpointResolverV2 = ecrPublicCustomEndpointResolver{}
+	})
 }
 
 func parseSpec(data []byte) (*genv1alpha1.ECRAuthorizationToken, error) {

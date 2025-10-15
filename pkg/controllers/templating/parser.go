@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,10 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package templating provides functionality for templating secret data.
 package templating
 
 import (
 	"context"
+	"crypto/sha3"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -24,11 +28,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	"github.com/external-secrets/external-secrets/pkg/template"
 )
 
 const fieldOwnerTemplate = "externalsecrets.external-secrets.io/%v"
+const fieldOwnerTemplateSha = "externalsecrets.external-secrets.io/sha3/%x"
 
 var (
 	errTplCMMissingKey  = "error in configmap %s: missing key %s"
@@ -36,6 +41,7 @@ var (
 	errExecTpl          = "could not execute template: %w"
 )
 
+// Parser is responsible for parsing and merging templates into a target secret.
 type Parser struct {
 	Exec         template.ExecFunc
 	DataMap      map[string][]byte
@@ -46,7 +52,8 @@ type Parser struct {
 	TemplateFromSecret    *v1.Secret
 }
 
-func (p *Parser) MergeConfigMap(ctx context.Context, namespace string, tpl esv1beta1.TemplateFrom) error {
+// MergeConfigMap merges the configmap template specified in the ExternalSecretTemplate's TemplateFrom field.
+func (p *Parser) MergeConfigMap(ctx context.Context, namespace string, tpl esv1.TemplateFrom) error {
 	if tpl.ConfigMap == nil {
 		return nil
 	}
@@ -71,9 +78,9 @@ func (p *Parser) MergeConfigMap(ctx context.Context, namespace string, tpl esv1b
 			return fmt.Errorf(errTplCMMissingKey, tpl.ConfigMap.Name, k.Key)
 		}
 		switch k.TemplateAs {
-		case esv1beta1.TemplateScopeValues:
+		case esv1.TemplateScopeValues:
 			out[k.Key] = []byte(val)
-		case esv1beta1.TemplateScopeKeysAndValues:
+		case esv1.TemplateScopeKeysAndValues:
 			out[val] = []byte(val)
 		}
 		err := p.Exec(out, p.DataMap, k.TemplateAs, tpl.Target, p.TargetSecret)
@@ -84,7 +91,8 @@ func (p *Parser) MergeConfigMap(ctx context.Context, namespace string, tpl esv1b
 	return nil
 }
 
-func (p *Parser) MergeSecret(ctx context.Context, namespace string, tpl esv1beta1.TemplateFrom) error {
+// MergeSecret merges the secret template specified in the ExternalSecretTemplate's TemplateFrom field.
+func (p *Parser) MergeSecret(ctx context.Context, namespace string, tpl esv1.TemplateFrom) error {
 	if tpl.Secret == nil {
 		return nil
 	}
@@ -109,9 +117,9 @@ func (p *Parser) MergeSecret(ctx context.Context, namespace string, tpl esv1beta
 		}
 		out := make(map[string][]byte)
 		switch k.TemplateAs {
-		case esv1beta1.TemplateScopeValues:
+		case esv1.TemplateScopeValues:
 			out[k.Key] = val
-		case esv1beta1.TemplateScopeKeysAndValues:
+		case esv1.TemplateScopeKeysAndValues:
 			out[string(val)] = val
 		}
 		err := p.Exec(out, p.DataMap, k.TemplateAs, tpl.Target, p.TargetSecret)
@@ -122,16 +130,18 @@ func (p *Parser) MergeSecret(ctx context.Context, namespace string, tpl esv1beta
 	return nil
 }
 
-func (p *Parser) MergeLiteral(_ context.Context, tpl esv1beta1.TemplateFrom) error {
+// MergeLiteral merges the literal template specified in the ExternalSecretTemplate's TemplateFrom field.
+func (p *Parser) MergeLiteral(_ context.Context, tpl esv1.TemplateFrom) error {
 	if tpl.Literal == nil {
 		return nil
 	}
 	out := make(map[string][]byte)
 	out[*tpl.Literal] = []byte(*tpl.Literal)
-	return p.Exec(out, p.DataMap, esv1beta1.TemplateScopeKeysAndValues, tpl.Target, p.TargetSecret)
+	return p.Exec(out, p.DataMap, esv1.TemplateScopeKeysAndValues, tpl.Target, p.TargetSecret)
 }
 
-func (p *Parser) MergeTemplateFrom(ctx context.Context, namespace string, template *esv1beta1.ExternalSecretTemplate) error {
+// MergeTemplateFrom merges all templates specified in the ExternalSecretTemplate's TemplateFrom field.
+func (p *Parser) MergeTemplateFrom(ctx context.Context, namespace string, template *esv1.ExternalSecretTemplate) error {
 	if template == nil {
 		return nil
 	}
@@ -153,18 +163,20 @@ func (p *Parser) MergeTemplateFrom(ctx context.Context, namespace string, templa
 	return nil
 }
 
-func (p *Parser) MergeMap(tplMap map[string]string, target esv1beta1.TemplateTarget) error {
+// MergeMap merges the given map of templates into the target secret.
+func (p *Parser) MergeMap(tplMap map[string]string, target esv1.TemplateTarget) error {
 	byteMap := make(map[string][]byte)
 	for k, v := range tplMap {
 		byteMap[k] = []byte(v)
 	}
-	err := p.Exec(byteMap, p.DataMap, esv1beta1.TemplateScopeValues, target, p.TargetSecret)
+	err := p.Exec(byteMap, p.DataMap, esv1.TemplateScopeValues, target, p.TargetSecret)
 	if err != nil {
 		return fmt.Errorf(errExecTpl, err)
 	}
 	return nil
 }
 
+// GetManagedAnnotationKeys returns the keys of the annotations managed by the given field owner.
 func GetManagedAnnotationKeys(secret *v1.Secret, fieldOwner string) ([]string, error) {
 	return getManagedFieldKeys(secret, fieldOwner, func(fields map[string]any) []string {
 		metadataFields, exists := fields["f:metadata"]
@@ -191,6 +203,9 @@ func GetManagedAnnotationKeys(secret *v1.Secret, fieldOwner string) ([]string, e
 	})
 }
 
+// GetManagedLabelKeys returns the keys of labels that are managed by the given field owner.
+// It checks the ManagedFields of the secret for entries with the specified field owner
+// and extracts the keys of the labels from the fields managed by that owner.
 func GetManagedLabelKeys(secret *v1.Secret, fieldOwner string) ([]string, error) {
 	return getManagedFieldKeys(secret, fieldOwner, func(fields map[string]any) []string {
 		metadataFields, exists := fields["f:metadata"]
@@ -222,7 +237,12 @@ func getManagedFieldKeys(
 	fieldOwner string,
 	process func(fields map[string]any) []string,
 ) ([]string, error) {
+	// If secret name is just too big, use the SHA3 hash of the secret name
+	// Done this way for backwards compatibility thus avoiding breaking changes
 	fqdn := fmt.Sprintf(fieldOwnerTemplate, fieldOwner)
+	if len(fieldOwner) > 63 {
+		fqdn = fmt.Sprintf(fieldOwnerTemplateSha, sha3.Sum224([]byte(fieldOwner)))
+	}
 	var keys []string
 	for _, v := range secret.ObjectMeta.ManagedFields {
 		if v.Manager != fqdn {

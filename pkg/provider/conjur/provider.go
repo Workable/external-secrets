@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,15 +25,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlcfg "sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 )
 
+// Provider implements the External Secrets provider interface for Conjur.
+// It facilitates creation of Conjur clients and manages their lifecycle.
 type Provider struct {
-	NewConjurProvider func(context context.Context, store esv1beta1.GenericStore, kube client.Client, namespace string, corev1 typedcorev1.CoreV1Interface, clientApi SecretsClientFactory) (esv1beta1.SecretsClient, error)
+	NewConjurProvider func(context context.Context, store esv1.GenericStore, kube client.Client, namespace string, corev1 typedcorev1.CoreV1Interface, clientApi SecretsClientFactory) (esv1.SecretsClient, error)
 }
 
-// NewClient creates a new Conjur client.
-func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, kube client.Client, namespace string) (esv1beta1.SecretsClient, error) {
+// NewClient creates a new Conjur client using the provided store configuration.
+// It sets up necessary Kubernetes clients and creates a new Conjur provider instance.
+func (p *Provider) NewClient(ctx context.Context, store esv1.GenericStore, kube client.Client, namespace string) (esv1.SecretsClient, error) {
 	// controller-runtime/client does not support TokenRequest or other subresource APIs
 	// so we need to construct our own client and use it to create a TokenRequest
 	restCfg, err := ctrlcfg.GetConfig()
@@ -46,12 +51,14 @@ func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, 
 	return p.NewConjurProvider(ctx, store, kube, namespace, clientset.CoreV1(), &ClientAPIImpl{})
 }
 
-// Capabilities returns the provider Capabilities (Read, Write, ReadWrite).
-func (p *Provider) Capabilities() esv1beta1.SecretStoreCapabilities {
-	return esv1beta1.SecretStoreReadOnly
+// Capabilities returns the provider's supported capabilities.
+// Conjur provider supports read-only access to secrets.
+func (p *Provider) Capabilities() esv1.SecretStoreCapabilities {
+	return esv1.SecretStoreReadOnly
 }
 
-func newConjurProvider(_ context.Context, store esv1beta1.GenericStore, kube client.Client, namespace string, corev1 typedcorev1.CoreV1Interface, clientAPI SecretsClientFactory) (esv1beta1.SecretsClient, error) {
+// newConjurProvider creates and returns a new Conjur client with the specified configuration.
+func newConjurProvider(_ context.Context, store esv1.GenericStore, kube client.Client, namespace string, corev1 typedcorev1.CoreV1Interface, clientAPI SecretsClientFactory) (esv1.SecretsClient, error) {
 	return &Client{
 		StoreKind: store.GetObjectKind().GroupVersionKind().Kind,
 		store:     store,
@@ -63,9 +70,9 @@ func newConjurProvider(_ context.Context, store esv1beta1.GenericStore, kube cli
 }
 
 func init() {
-	esv1beta1.Register(&Provider{
+	esv1.Register(&Provider{
 		NewConjurProvider: newConjurProvider,
-	}, &esv1beta1.SecretStoreProvider{
-		Conjur: &esv1beta1.ConjurProvider{},
-	})
+	}, &esv1.SecretStoreProvider{
+		Conjur: &esv1.ConjurProvider{},
+	}, esv1.MaintenanceStatusMaintained)
 }

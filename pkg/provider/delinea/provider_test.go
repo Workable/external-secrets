@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,38 +28,38 @@ import (
 	kubeClient "sigs.k8s.io/controller-runtime/pkg/client"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	v1 "github.com/external-secrets/external-secrets/apis/meta/v1"
-	"github.com/external-secrets/external-secrets/pkg/utils"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
 )
 
 func TestDoesConfigDependOnNamespace(t *testing.T) {
 	tests := map[string]struct {
-		cfg  esv1beta1.DelineaProvider
+		cfg  esv1.DelineaProvider
 		want bool
 	}{
 		"true when client ID references a secret without explicit namespace": {
-			cfg: esv1beta1.DelineaProvider{
-				ClientID: &esv1beta1.DelineaProviderSecretRef{
+			cfg: esv1.DelineaProvider{
+				ClientID: &esv1.DelineaProviderSecretRef{
 					SecretRef: &v1.SecretKeySelector{Name: "foo"},
 				},
-				ClientSecret: &esv1beta1.DelineaProviderSecretRef{SecretRef: nil},
+				ClientSecret: &esv1.DelineaProviderSecretRef{SecretRef: nil},
 			},
 			want: true,
 		},
 		"true when client secret references a secret without explicit namespace": {
-			cfg: esv1beta1.DelineaProvider{
-				ClientID: &esv1beta1.DelineaProviderSecretRef{SecretRef: nil},
-				ClientSecret: &esv1beta1.DelineaProviderSecretRef{
+			cfg: esv1.DelineaProvider{
+				ClientID: &esv1.DelineaProviderSecretRef{SecretRef: nil},
+				ClientSecret: &esv1.DelineaProviderSecretRef{
 					SecretRef: &v1.SecretKeySelector{Name: "foo"},
 				},
 			},
 			want: true,
 		},
 		"false when neither client ID nor secret reference a secret": {
-			cfg: esv1beta1.DelineaProvider{
-				ClientID:     &esv1beta1.DelineaProviderSecretRef{SecretRef: nil},
-				ClientSecret: &esv1beta1.DelineaProviderSecretRef{SecretRef: nil},
+			cfg: esv1.DelineaProvider{
+				ClientID:     &esv1.DelineaProviderSecretRef{SecretRef: nil},
+				ClientSecret: &esv1.DelineaProviderSecretRef{SecretRef: nil},
 			},
 			want: false,
 		},
@@ -72,15 +74,15 @@ func TestDoesConfigDependOnNamespace(t *testing.T) {
 
 func TestValidateStore(t *testing.T) {
 	validSecretRefUsingValue := makeSecretRefUsingValue("foo")
-	ambiguousSecretRef := &esv1beta1.DelineaProviderSecretRef{
+	ambiguousSecretRef := &esv1.DelineaProviderSecretRef{
 		SecretRef: &v1.SecretKeySelector{Name: "foo"}, Value: "foo",
 	}
 	tests := map[string]struct {
-		cfg  esv1beta1.DelineaProvider
+		cfg  esv1.DelineaProvider
 		want error
 	}{
 		"invalid without tenant": {
-			cfg: esv1beta1.DelineaProvider{
+			cfg: esv1.DelineaProvider{
 				Tenant:       "",
 				ClientID:     validSecretRefUsingValue,
 				ClientSecret: validSecretRefUsingValue,
@@ -88,7 +90,7 @@ func TestValidateStore(t *testing.T) {
 			want: errEmptyTenant,
 		},
 		"invalid without clientID": {
-			cfg: esv1beta1.DelineaProvider{
+			cfg: esv1.DelineaProvider{
 				Tenant: "foo",
 				// ClientID omitted
 				ClientSecret: validSecretRefUsingValue,
@@ -96,7 +98,7 @@ func TestValidateStore(t *testing.T) {
 			want: errEmptyClientID,
 		},
 		"invalid without clientSecret": {
-			cfg: esv1beta1.DelineaProvider{
+			cfg: esv1.DelineaProvider{
 				Tenant:   "foo",
 				ClientID: validSecretRefUsingValue,
 				// ClientSecret omitted
@@ -104,7 +106,7 @@ func TestValidateStore(t *testing.T) {
 			want: errEmptyClientSecret,
 		},
 		"invalid with ambiguous clientID": {
-			cfg: esv1beta1.DelineaProvider{
+			cfg: esv1.DelineaProvider{
 				Tenant:       "foo",
 				ClientID:     ambiguousSecretRef,
 				ClientSecret: validSecretRefUsingValue,
@@ -112,7 +114,7 @@ func TestValidateStore(t *testing.T) {
 			want: errSecretRefAndValueConflict,
 		},
 		"invalid with ambiguous clientSecret": {
-			cfg: esv1beta1.DelineaProvider{
+			cfg: esv1.DelineaProvider{
 				Tenant:       "foo",
 				ClientID:     validSecretRefUsingValue,
 				ClientSecret: ambiguousSecretRef,
@@ -120,7 +122,7 @@ func TestValidateStore(t *testing.T) {
 			want: errSecretRefAndValueConflict,
 		},
 		"invalid with invalid clientID": {
-			cfg: esv1beta1.DelineaProvider{
+			cfg: esv1.DelineaProvider{
 				Tenant:       "foo",
 				ClientID:     makeSecretRefUsingValue(""),
 				ClientSecret: validSecretRefUsingValue,
@@ -128,7 +130,7 @@ func TestValidateStore(t *testing.T) {
 			want: errSecretRefAndValueMissing,
 		},
 		"invalid with invalid clientSecret": {
-			cfg: esv1beta1.DelineaProvider{
+			cfg: esv1.DelineaProvider{
 				Tenant:       "foo",
 				ClientID:     validSecretRefUsingValue,
 				ClientSecret: makeSecretRefUsingValue(""),
@@ -136,7 +138,7 @@ func TestValidateStore(t *testing.T) {
 			want: errSecretRefAndValueMissing,
 		},
 		"valid with tenant/clientID/clientSecret": {
-			cfg: esv1beta1.DelineaProvider{
+			cfg: esv1.DelineaProvider{
 				Tenant:       "foo",
 				ClientID:     validSecretRefUsingValue,
 				ClientSecret: validSecretRefUsingValue,
@@ -146,9 +148,9 @@ func TestValidateStore(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			s := esv1beta1.SecretStore{
-				Spec: esv1beta1.SecretStoreSpec{
-					Provider: &esv1beta1.SecretStoreProvider{
+			s := esv1.SecretStore{
+				Spec: esv1.SecretStoreSpec{
+					Provider: &esv1.SecretStoreProvider{
 						Delinea: &tc.cfg,
 					},
 				},
@@ -162,16 +164,16 @@ func TestValidateStore(t *testing.T) {
 
 func TestValidateStoreBailsOnUnexpectedStore(t *testing.T) {
 	tests := map[string]struct {
-		store esv1beta1.GenericStore
+		store esv1.GenericStore
 		want  error
 	}{
 		"missing store": {nil, errMissingStore},
-		"missing spec":  {&esv1beta1.SecretStore{}, errInvalidSpec},
-		"missing provider": {&esv1beta1.SecretStore{
-			Spec: esv1beta1.SecretStoreSpec{Provider: nil},
+		"missing spec":  {&esv1.SecretStore{}, errInvalidSpec},
+		"missing provider": {&esv1.SecretStore{
+			Spec: esv1.SecretStoreSpec{Provider: nil},
 		}, errInvalidSpec},
-		"missing delinea": {&esv1beta1.SecretStore{
-			Spec: esv1beta1.SecretStoreSpec{Provider: &esv1beta1.SecretStoreProvider{
+		"missing delinea": {&esv1.SecretStore{
+			Spec: esv1.SecretStoreSpec{Provider: &esv1.SecretStoreProvider{
 				Delinea: nil,
 			}},
 		}, errInvalidSpec},
@@ -200,15 +202,15 @@ func TestNewClient(t *testing.T) {
 		},
 	}
 
-	validProvider := &esv1beta1.DelineaProvider{
+	validProvider := &esv1.DelineaProvider{
 		Tenant:       tenant,
 		ClientID:     makeSecretRefUsingRef(clientSecret.Name, clientIDKey),
 		ClientSecret: makeSecretRefUsingRef(clientSecret.Name, clientSecretKey),
 	}
 
 	tests := map[string]struct {
-		store    esv1beta1.GenericStore     // leave nil for namespaced store
-		provider *esv1beta1.DelineaProvider // discarded when store is set
+		store    esv1.GenericStore     // leave nil for namespaced store
+		provider *esv1.DelineaProvider // discarded when store is set
 		kube     kubeClient.Client
 		errCheck func(t *testing.T, err error)
 	}{
@@ -219,10 +221,10 @@ func TestNewClient(t *testing.T) {
 			},
 		},
 		"namespace-dependent cluster secret store": {
-			store: &esv1beta1.ClusterSecretStore{
-				TypeMeta: metav1.TypeMeta{Kind: esv1beta1.ClusterSecretStoreKind},
-				Spec: esv1beta1.SecretStoreSpec{
-					Provider: &esv1beta1.SecretStoreProvider{
+			store: &esv1.ClusterSecretStore{
+				TypeMeta: metav1.TypeMeta{Kind: esv1.ClusterSecretStoreKind},
+				Spec: esv1.SecretStoreSpec{
+					Provider: &esv1.SecretStoreProvider{
 						Delinea: validProvider,
 					},
 				},
@@ -232,7 +234,7 @@ func TestNewClient(t *testing.T) {
 			},
 		},
 		"dangling client ID ref": {
-			provider: &esv1beta1.DelineaProvider{
+			provider: &esv1.DelineaProvider{
 				Tenant:       tenant,
 				ClientID:     makeSecretRefUsingRef("typo", clientIDKey),
 				ClientSecret: makeSecretRefUsingRef(clientSecret.Name, clientSecretKey),
@@ -243,7 +245,7 @@ func TestNewClient(t *testing.T) {
 			},
 		},
 		"dangling client secret ref": {
-			provider: &esv1beta1.DelineaProvider{
+			provider: &esv1.DelineaProvider{
 				Tenant:       tenant,
 				ClientID:     makeSecretRefUsingRef(clientSecret.Name, clientIDKey),
 				ClientSecret: makeSecretRefUsingRef("typo", clientSecretKey),
@@ -254,7 +256,7 @@ func TestNewClient(t *testing.T) {
 			},
 		},
 		"secret ref without name": {
-			provider: &esv1beta1.DelineaProvider{
+			provider: &esv1.DelineaProvider{
 				Tenant:       tenant,
 				ClientID:     makeSecretRefUsingRef("", clientIDKey),
 				ClientSecret: makeSecretRefUsingRef(clientSecret.Name, clientSecretKey),
@@ -265,7 +267,7 @@ func TestNewClient(t *testing.T) {
 			},
 		},
 		"secret ref without key": {
-			provider: &esv1beta1.DelineaProvider{
+			provider: &esv1.DelineaProvider{
 				Tenant:       tenant,
 				ClientID:     makeSecretRefUsingRef(clientSecret.Name, ""),
 				ClientSecret: makeSecretRefUsingRef(clientSecret.Name, clientSecretKey),
@@ -276,7 +278,7 @@ func TestNewClient(t *testing.T) {
 			},
 		},
 		"secret ref with non-existent keys": {
-			provider: &esv1beta1.DelineaProvider{
+			provider: &esv1.DelineaProvider{
 				Tenant:       tenant,
 				ClientID:     makeSecretRefUsingRef(clientSecret.Name, "typo"),
 				ClientSecret: makeSecretRefUsingRef(clientSecret.Name, clientSecretKey),
@@ -291,7 +293,7 @@ func TestNewClient(t *testing.T) {
 			kube:     clientfake.NewClientBuilder().WithObjects(clientSecret).Build(),
 		},
 		"secret values": {
-			provider: &esv1beta1.DelineaProvider{
+			provider: &esv1.DelineaProvider{
 				Tenant:       tenant,
 				ClientID:     makeSecretRefUsingValue(clientIDValue),
 				ClientSecret: makeSecretRefUsingValue(clientSecretValue),
@@ -299,11 +301,11 @@ func TestNewClient(t *testing.T) {
 			kube: clientfake.NewClientBuilder().WithObjects(clientSecret).Build(),
 		},
 		"cluster secret store": {
-			store: &esv1beta1.ClusterSecretStore{
-				TypeMeta: metav1.TypeMeta{Kind: esv1beta1.ClusterSecretStoreKind},
-				Spec: esv1beta1.SecretStoreSpec{
-					Provider: &esv1beta1.SecretStoreProvider{
-						Delinea: &esv1beta1.DelineaProvider{
+			store: &esv1.ClusterSecretStore{
+				TypeMeta: metav1.TypeMeta{Kind: esv1.ClusterSecretStoreKind},
+				Spec: esv1.SecretStoreSpec{
+					Provider: &esv1.SecretStoreProvider{
+						Delinea: &esv1.DelineaProvider{
 							Tenant:       tenant,
 							ClientID:     makeSecretRefUsingNamespacedRef(clientSecret.Namespace, clientSecret.Name, clientIDKey),
 							ClientSecret: makeSecretRefUsingNamespacedRef(clientSecret.Namespace, clientSecret.Name, clientSecretKey),
@@ -319,10 +321,10 @@ func TestNewClient(t *testing.T) {
 			p := &Provider{}
 			store := tc.store
 			if store == nil {
-				store = &esv1beta1.SecretStore{
-					TypeMeta: metav1.TypeMeta{Kind: esv1beta1.SecretStoreKind},
-					Spec: esv1beta1.SecretStoreSpec{
-						Provider: &esv1beta1.SecretStoreProvider{
+				store = &esv1.SecretStore{
+					TypeMeta: metav1.TypeMeta{Kind: esv1.SecretStoreKind},
+					Spec: esv1.SecretStoreSpec{
+						Provider: &esv1.SecretStoreProvider{
 							Delinea: tc.provider,
 						},
 					},
@@ -352,18 +354,18 @@ func TestNewClient(t *testing.T) {
 	}
 }
 
-func makeSecretRefUsingRef(name, key string) *esv1beta1.DelineaProviderSecretRef {
-	return &esv1beta1.DelineaProviderSecretRef{
+func makeSecretRefUsingRef(name, key string) *esv1.DelineaProviderSecretRef {
+	return &esv1.DelineaProviderSecretRef{
 		SecretRef: &v1.SecretKeySelector{Name: name, Key: key},
 	}
 }
 
-func makeSecretRefUsingNamespacedRef(namespace, name, key string) *esv1beta1.DelineaProviderSecretRef {
-	return &esv1beta1.DelineaProviderSecretRef{
-		SecretRef: &v1.SecretKeySelector{Namespace: utils.Ptr(namespace), Name: name, Key: key},
+func makeSecretRefUsingNamespacedRef(namespace, name, key string) *esv1.DelineaProviderSecretRef {
+	return &esv1.DelineaProviderSecretRef{
+		SecretRef: &v1.SecretKeySelector{Namespace: esutils.Ptr(namespace), Name: name, Key: key},
 	}
 }
 
-func makeSecretRefUsingValue(val string) *esv1beta1.DelineaProviderSecretRef {
-	return &esv1beta1.DelineaProviderSecretRef{Value: val}
+func makeSecretRefUsingValue(val string) *esv1.DelineaProviderSecretRef {
+	return &esv1.DelineaProviderSecretRef{Value: val}
 }

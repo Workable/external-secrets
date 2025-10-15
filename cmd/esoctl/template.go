@@ -1,11 +1,11 @@
 /*
-Copyright © 2025 ESO Maintainer team
+Copyright © 2025 ESO Maintainer Team
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+	https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
@@ -27,8 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/yaml"
 
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	"github.com/external-secrets/external-secrets/apis/externalsecrets/v1alpha1"
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
 	"github.com/external-secrets/external-secrets/pkg/controllers/templating"
 	"github.com/external-secrets/external-secrets/pkg/template"
 )
@@ -75,7 +76,7 @@ func templateRun(_ *cobra.Command, _ []string) error {
 
 	ctx := context.Background()
 	obj := &unstructured.Unstructured{}
-	content, err := os.ReadFile(templateFile)
+	content, err := os.ReadFile(filepath.Clean(templateFile))
 	if err != nil {
 		return fmt.Errorf("could not read template file: %w", err)
 	}
@@ -90,7 +91,7 @@ func templateRun(_ *cobra.Command, _ []string) error {
 	}
 
 	data := map[string][]byte{}
-	sourceDataContent, err := os.ReadFile(secretDataFile)
+	sourceDataContent, err := os.ReadFile(filepath.Clean(secretDataFile))
 	if err != nil {
 		return fmt.Errorf("could not read source secret file: %w", err)
 	}
@@ -121,7 +122,7 @@ func templateRun(_ *cobra.Command, _ []string) error {
 
 	out := os.Stdout
 	if outputFile != "" {
-		f, err := os.Create(outputFile)
+		f, err := os.Create(filepath.Clean(outputFile))
 		if err != nil {
 			return fmt.Errorf("could not create output file: %w", err)
 		}
@@ -143,11 +144,11 @@ func templateRun(_ *cobra.Command, _ []string) error {
 	return err
 }
 
-func fetchTemplateFromSourceObject(obj *unstructured.Unstructured) (*esv1beta1.ExternalSecretTemplate, error) {
-	var tmpl *esv1beta1.ExternalSecretTemplate
+func fetchTemplateFromSourceObject(obj *unstructured.Unstructured) (*esv1.ExternalSecretTemplate, error) {
+	var tmpl *esv1.ExternalSecretTemplate
 	switch obj.GetKind() {
 	case "ExternalSecret":
-		es := &esv1beta1.ExternalSecret{}
+		es := &esv1.ExternalSecret{}
 		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, es); err != nil {
 			return nil, err
 		}
@@ -167,7 +168,7 @@ func fetchTemplateFromSourceObject(obj *unstructured.Unstructured) (*esv1beta1.E
 	return tmpl, nil
 }
 
-func executeTemplate(p *templating.Parser, ctx context.Context, tmpl *esv1beta1.ExternalSecretTemplate) error {
+func executeTemplate(p *templating.Parser, ctx context.Context, tmpl *esv1.ExternalSecretTemplate) error {
 	// apply templates defined in template.templateFrom
 	err := p.MergeTemplateFrom(ctx, "default", tmpl)
 	if err != nil {
@@ -176,21 +177,21 @@ func executeTemplate(p *templating.Parser, ctx context.Context, tmpl *esv1beta1.
 
 	// apply data templates
 	// NOTE: explicitly defined template.data templates take precedence over templateFrom
-	err = p.MergeMap(tmpl.Data, esv1beta1.TemplateTargetData)
+	err = p.MergeMap(tmpl.Data, esv1.TemplateTargetData)
 	if err != nil {
 		return fmt.Errorf("could not merge data: %w", err)
 	}
 
 	// apply templates for labels
 	// NOTE: this only works for v2 templates
-	err = p.MergeMap(tmpl.Metadata.Labels, esv1beta1.TemplateTargetLabels)
+	err = p.MergeMap(tmpl.Metadata.Labels, esv1.TemplateTargetLabels)
 	if err != nil {
 		return fmt.Errorf("could not merge labels: %w", err)
 	}
 
 	// apply template for annotations
 	// NOTE: this only works for v2 templates
-	err = p.MergeMap(tmpl.Metadata.Annotations, esv1beta1.TemplateTargetAnnotations)
+	err = p.MergeMap(tmpl.Metadata.Annotations, esv1.TemplateTargetAnnotations)
 	if err != nil {
 		return fmt.Errorf("could not merge annotations: %w", err)
 	}
@@ -201,7 +202,7 @@ func executeTemplate(p *templating.Parser, ctx context.Context, tmpl *esv1beta1.
 func setupFromConfigAndFromSecret(p *templating.Parser) error {
 	if templateFromConfigMapFile != "" {
 		var configMap corev1.ConfigMap
-		configMapContent, err := os.ReadFile(templateFromConfigMapFile)
+		configMapContent, err := os.ReadFile(filepath.Clean(templateFromConfigMapFile))
 		if err != nil {
 			return err
 		}
@@ -215,7 +216,7 @@ func setupFromConfigAndFromSecret(p *templating.Parser) error {
 
 	if templateFromSecretFile != "" {
 		var secret corev1.Secret
-		secretContent, err := os.ReadFile(templateFromSecretFile)
+		secretContent, err := os.ReadFile(filepath.Clean(templateFromSecretFile))
 		if err != nil {
 			return err
 		}

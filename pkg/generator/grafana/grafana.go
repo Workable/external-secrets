@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package grafana provides functionality for generating Grafana service account tokens.
 package grafana
 
 import (
@@ -31,11 +34,13 @@ import (
 
 	genv1alpha1 "github.com/external-secrets/external-secrets/apis/generators/v1alpha1"
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
-	"github.com/external-secrets/external-secrets/pkg/utils/resolvers"
+	"github.com/external-secrets/external-secrets/pkg/esutils/resolvers"
 )
 
+// Grafana implements token generation for Grafana service accounts.
 type Grafana struct{}
 
+// Generate creates a new Grafana service account token using the provided configuration.
 func (w *Grafana) Generate(ctx context.Context, jsonSpec *apiextensions.JSON, kclient client.Client, ns string) (map[string][]byte, genv1alpha1.GeneratorProviderState, error) {
 	gen, err := parseSpec(jsonSpec.Raw)
 	if err != nil {
@@ -66,6 +71,7 @@ func (w *Grafana) Generate(ctx context.Context, jsonSpec *apiextensions.JSON, kc
 	return tokenResponse(state, res.Payload.Key)
 }
 
+// Cleanup handles any necessary cleanup after token generation.
 func (w *Grafana) Cleanup(ctx context.Context, jsonSpec *apiextensions.JSON, previousStatus genv1alpha1.GeneratorProviderState, kclient client.Client, ns string) error {
 	if previousStatus == nil {
 		return fmt.Errorf("missing previous status")
@@ -164,6 +170,7 @@ func createOrGetServiceAccount(cl *grafanaclient.GrafanaHTTPAPI, gen *genv1alpha
 	res, err := cl.ServiceAccounts.CreateServiceAccount(&grafanasa.CreateServiceAccountParams{
 		Body: &models.CreateServiceAccountForm{
 			Name: gen.Spec.ServiceAccount.Name,
+			Role: gen.Spec.ServiceAccount.Role,
 		},
 	}, nil)
 	if err != nil {

@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -31,7 +33,7 @@ import (
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 	"github.com/external-secrets/external-secrets/pkg/provider/yandex/common"
 	"github.com/external-secrets/external-secrets/pkg/provider/yandex/common/clock"
@@ -42,45 +44,37 @@ const (
 	errMissingKey                    = "invalid Yandex Lockbox SecretStore resource: missing AuthorizedKey Name"
 	errSecretPayloadPermissionDenied = "unable to request secret payload to get secret: permission denied"
 	errSecretPayloadNotFound         = "unable to request secret payload to get secret: secret not found"
+	errSecretPayloadVersionNotFound  = "unable to request secret payload to get secret: version not found"
 )
 
 func TestNewClient(t *testing.T) {
 	ctx := context.Background()
 	const namespace = "namespace"
+	const authorizedKeySecretName = "authorizedKeySecretName"
+	const authorizedKeySecretKey = "authorizedKeySecretKey"
 
-	store := &esv1beta1.SecretStore{
+	store := &esv1.SecretStore{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
 		},
-		Spec: esv1beta1.SecretStoreSpec{
-			Provider: &esv1beta1.SecretStoreProvider{
-				YandexLockbox: &esv1beta1.YandexLockboxProvider{},
+		Spec: esv1.SecretStoreSpec{
+			Provider: &esv1.SecretStoreProvider{
+				YandexLockbox: &esv1.YandexLockboxProvider{
+					Auth: esv1.YandexAuth{
+						AuthorizedKey: esmeta.SecretKeySelector{
+							Key:  authorizedKeySecretKey,
+							Name: authorizedKeySecretName,
+						},
+					},
+				},
 			},
 		},
 	}
-	provider, err := esv1beta1.GetProvider(store)
+	provider, err := esv1.GetProvider(store)
 	tassert.Nil(t, err)
 
 	k8sClient := clientfake.NewClientBuilder().Build()
 	secretClient, err := provider.NewClient(context.Background(), store, k8sClient, namespace)
-	tassert.EqualError(t, err, errMissingKey)
-	tassert.Nil(t, secretClient)
-
-	store.Spec.Provider.YandexLockbox.Auth = esv1beta1.YandexLockboxAuth{}
-	secretClient, err = provider.NewClient(context.Background(), store, k8sClient, namespace)
-	tassert.EqualError(t, err, errMissingKey)
-	tassert.Nil(t, secretClient)
-
-	store.Spec.Provider.YandexLockbox.Auth.AuthorizedKey = esmeta.SecretKeySelector{}
-	secretClient, err = provider.NewClient(context.Background(), store, k8sClient, namespace)
-	tassert.EqualError(t, err, errMissingKey)
-	tassert.Nil(t, secretClient)
-
-	const authorizedKeySecretName = "authorizedKeySecretName"
-	const authorizedKeySecretKey = "authorizedKeySecretKey"
-	store.Spec.Provider.YandexLockbox.Auth.AuthorizedKey.Name = authorizedKeySecretName
-	store.Spec.Provider.YandexLockbox.Auth.AuthorizedKey.Key = authorizedKeySecretKey
-	secretClient, err = provider.NewClient(context.Background(), store, k8sClient, namespace)
 	tassert.EqualError(t, err, "cannot get Kubernetes secret \"authorizedKeySecretName\" from namespace \"namespace\": secrets \"authorizedKeySecretName\" not found")
 	tassert.Nil(t, secretClient)
 
@@ -89,7 +83,7 @@ func TestNewClient(t *testing.T) {
 
 	const caCertificateSecretName = "caCertificateSecretName"
 	const caCertificateSecretKey = "caCertificateSecretKey"
-	store.Spec.Provider.YandexLockbox.CAProvider = &esv1beta1.YandexLockboxCAProvider{
+	store.Spec.Provider.YandexLockbox.CAProvider = &esv1.YandexCAProvider{
 		Certificate: esmeta.SecretKeySelector{
 			Key:  caCertificateSecretKey,
 			Name: caCertificateSecretName,
@@ -116,6 +110,7 @@ func TestGetSecretForAllEntries(t *testing.T) {
 	k1, v1 := "k1", "v1"
 	k2, v2 := "k2", []byte("v2")
 	secretID, _ := fakeLockboxServer.CreateSecret(authorizedKey,
+		"folderId", "secretName",
 		textEntry(k1, v1),
 		binaryEntry(k2, v2),
 	)
@@ -130,7 +125,7 @@ func TestGetSecretForAllEntries(t *testing.T) {
 	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
 	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
 	tassert.Nil(t, err)
-	data, err := secretsClient.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID})
+	data, err := secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID})
 	tassert.Nil(t, err)
 
 	tassert.Equal(
@@ -153,6 +148,7 @@ func TestGetSecretForTextEntry(t *testing.T) {
 	k1, v1 := "k1", "v1"
 	k2, v2 := "k2", []byte("v2")
 	secretID, _ := fakeLockboxServer.CreateSecret(authorizedKey,
+		"folderId", "secretName",
 		textEntry(k1, v1),
 		binaryEntry(k2, v2),
 	)
@@ -167,7 +163,7 @@ func TestGetSecretForTextEntry(t *testing.T) {
 	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
 	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
 	tassert.Nil(t, err)
-	data, err := secretsClient.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID, Property: k1})
+	data, err := secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID, Property: k1})
 	tassert.Nil(t, err)
 
 	tassert.Equal(t, v1, string(data))
@@ -183,6 +179,7 @@ func TestGetSecretForBinaryEntry(t *testing.T) {
 	k1, v1 := "k1", "v1"
 	k2, v2 := "k2", []byte("v2")
 	secretID, _ := fakeLockboxServer.CreateSecret(authorizedKey,
+		"folderId", "secretName",
 		textEntry(k1, v1),
 		binaryEntry(k2, v2),
 	)
@@ -197,7 +194,7 @@ func TestGetSecretForBinaryEntry(t *testing.T) {
 	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
 	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
 	tassert.Nil(t, err)
-	data, err := secretsClient.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID, Property: k2})
+	data, err := secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID, Property: k2})
 	tassert.Nil(t, err)
 
 	tassert.Equal(t, v2, data)
@@ -210,8 +207,9 @@ func TestGetSecretByVersionID(t *testing.T) {
 
 	fakeClock := clock.NewFakeClock()
 	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, time.Hour)
-	oldKey, oldVal := "oldKey", "oldVal"
+	const oldKey, oldVal = "oldKey", "oldVal"
 	secretID, oldVersionID := fakeLockboxServer.CreateSecret(authorizedKey,
+		"folderId", "secretName",
 		textEntry(oldKey, oldVal),
 	)
 
@@ -225,21 +223,19 @@ func TestGetSecretByVersionID(t *testing.T) {
 	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
 	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
 	tassert.Nil(t, err)
-	data, err := secretsClient.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID, Version: oldVersionID})
+	data, err := secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID, Version: oldVersionID})
 	tassert.Nil(t, err)
 
 	tassert.Equal(t, map[string]string{oldKey: oldVal}, unmarshalStringMap(t, data))
 
-	newKey, newVal := "newKey", "newVal"
-	newVersionID := fakeLockboxServer.AddVersion(secretID,
-		textEntry(newKey, newVal),
-	)
+	const newKey, newVal = "newKey", "newVal"
+	newVersionID := fakeLockboxServer.AddVersion(secretID, textEntry(newKey, newVal))
 
-	data, err = secretsClient.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID, Version: oldVersionID})
+	data, err = secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID, Version: oldVersionID})
 	tassert.Nil(t, err)
 	tassert.Equal(t, map[string]string{oldKey: oldVal}, unmarshalStringMap(t, data))
 
-	data, err = secretsClient.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID, Version: newVersionID})
+	data, err = secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID, Version: newVersionID})
 	tassert.Nil(t, err)
 	tassert.Equal(t, map[string]string{newKey: newVal}, unmarshalStringMap(t, data))
 }
@@ -253,6 +249,7 @@ func TestGetSecretUnauthorized(t *testing.T) {
 	fakeClock := clock.NewFakeClock()
 	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, time.Hour)
 	secretID, _ := fakeLockboxServer.CreateSecret(authorizedKeyA,
+		"folderId", "secretName",
 		textEntry("k1", "v1"),
 	)
 
@@ -266,7 +263,7 @@ func TestGetSecretUnauthorized(t *testing.T) {
 	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
 	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
 	tassert.Nil(t, err)
-	_, err = secretsClient.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID})
+	_, err = secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID})
 	tassert.EqualError(t, err, errSecretPayloadPermissionDenied)
 }
 
@@ -288,14 +285,15 @@ func TestGetSecretNotFound(t *testing.T) {
 	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
 	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
 	tassert.Nil(t, err)
-	_, err = secretsClient.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: "no-secret-with-this-id"})
+	_, err = secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: "no-secret-with-this-id"})
 	tassert.EqualError(t, err, errSecretPayloadNotFound)
 
 	secretID, _ := fakeLockboxServer.CreateSecret(authorizedKey,
+		"folderId", "secretName",
 		textEntry("k1", "v1"),
 	)
-	_, err = secretsClient.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID, Version: "no-version-with-this-id"})
-	tassert.EqualError(t, err, "unable to request secret payload to get secret: version not found")
+	_, err = secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID, Version: "no-version-with-this-id"})
+	tassert.EqualError(t, err, errSecretPayloadVersionNotFound)
 }
 
 func TestGetSecretWithTwoNamespaces(t *testing.T) {
@@ -309,10 +307,13 @@ func TestGetSecretWithTwoNamespaces(t *testing.T) {
 	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, time.Hour)
 	k1, v1 := "k1", "v1"
 	secretID1, _ := fakeLockboxServer.CreateSecret(authorizedKey1,
+		"folderId", "secretName1",
 		textEntry(k1, v1),
 	)
 	k2, v2 := "k2", "v2"
 	secretID2, _ := fakeLockboxServer.CreateSecret(authorizedKey2,
+		"folderId", "secretName2",
+		textEntry(k2, v2),
 		textEntry(k2, v2),
 	)
 
@@ -332,17 +333,17 @@ func TestGetSecretWithTwoNamespaces(t *testing.T) {
 	secretsClient2, err := provider.NewClient(ctx, store2, k8sClient, namespace2)
 	tassert.Nil(t, err)
 
-	data, err := secretsClient1.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID1, Property: k1})
+	data, err := secretsClient1.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID1, Property: k1})
 	tassert.Equal(t, v1, string(data))
 	tassert.Nil(t, err)
-	data, err = secretsClient1.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID2, Property: k2})
+	data, err = secretsClient1.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID2, Property: k2})
 	tassert.Nil(t, data)
 	tassert.EqualError(t, err, errSecretPayloadPermissionDenied)
 
-	data, err = secretsClient2.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID1, Property: k1})
+	data, err = secretsClient2.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID1, Property: k1})
 	tassert.Nil(t, data)
 	tassert.EqualError(t, err, errSecretPayloadPermissionDenied)
-	data, err = secretsClient2.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID2, Property: k2})
+	data, err = secretsClient2.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID2, Property: k2})
 	tassert.Equal(t, v2, string(data))
 	tassert.Nil(t, err)
 }
@@ -359,11 +360,13 @@ func TestGetSecretWithTwoApiEndpoints(t *testing.T) {
 	fakeLockboxServer1 := client.NewFakeLockboxServer(fakeClock, time.Hour)
 	k1, v1 := "k1", "v1"
 	secretID1, _ := fakeLockboxServer1.CreateSecret(authorizedKey1,
+		"folderId", "secretName",
 		textEntry(k1, v1),
 	)
 	fakeLockboxServer2 := client.NewFakeLockboxServer(fakeClock, time.Hour)
 	k2, v2 := "k2", "v2"
 	secretID2, _ := fakeLockboxServer2.CreateSecret(authorizedKey2,
+		"folderId", "secretName",
 		textEntry(k2, v2),
 	)
 
@@ -390,17 +393,17 @@ func TestGetSecretWithTwoApiEndpoints(t *testing.T) {
 
 	var data []byte
 
-	data, err = secretsClient1.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID1, Property: k1})
+	data, err = secretsClient1.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID1, Property: k1})
 	tassert.Equal(t, v1, string(data))
 	tassert.Nil(t, err)
-	data, err = secretsClient1.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID2, Property: k2})
+	data, err = secretsClient1.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID2, Property: k2})
 	tassert.Nil(t, data)
 	tassert.EqualError(t, err, errSecretPayloadNotFound)
 
-	data, err = secretsClient2.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID1, Property: k1})
+	data, err = secretsClient2.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID1, Property: k1})
 	tassert.Nil(t, data)
 	tassert.EqualError(t, err, errSecretPayloadNotFound)
-	data, err = secretsClient2.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID2, Property: k2})
+	data, err = secretsClient2.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID2, Property: k2})
 	tassert.Equal(t, v2, string(data))
 	tassert.Nil(t, err)
 }
@@ -415,6 +418,7 @@ func TestGetSecretWithIamTokenExpiration(t *testing.T) {
 	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, tokenExpirationTime)
 	k1, v1 := "k1", "v1"
 	secretID, _ := fakeLockboxServer.CreateSecret(authorizedKey,
+		"folderId", "secretName",
 		textEntry(k1, v1),
 	)
 
@@ -431,19 +435,19 @@ func TestGetSecretWithIamTokenExpiration(t *testing.T) {
 
 	oldSecretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
 	tassert.Nil(t, err)
-	data, err = oldSecretsClient.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID, Property: k1})
+	data, err = oldSecretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID, Property: k1})
 	tassert.Equal(t, v1, string(data))
 	tassert.Nil(t, err)
 
 	fakeClock.AddDuration(2 * tokenExpirationTime)
 
-	data, err = oldSecretsClient.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID, Property: k1})
+	data, err = oldSecretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID, Property: k1})
 	tassert.Nil(t, data)
 	tassert.EqualError(t, err, "unable to request secret payload to get secret: iam token expired")
 
 	newSecretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
 	tassert.Nil(t, err)
-	data, err = newSecretsClient.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID, Property: k1})
+	data, err = newSecretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID, Property: k1})
 	tassert.Equal(t, v1, string(data))
 	tassert.Nil(t, err)
 }
@@ -458,9 +462,11 @@ func TestGetSecretWithIamTokenCleanup(t *testing.T) {
 	tokenExpirationDuration := time.Hour
 	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, tokenExpirationDuration)
 	secretID1, _ := fakeLockboxServer.CreateSecret(authorizedKey1,
+		"folderId", "secretName1",
 		textEntry("k1", "v1"),
 	)
 	secretID2, _ := fakeLockboxServer.CreateSecret(authorizedKey2,
+		"folderId", "secretName2",
 		textEntry("k2", "v2"),
 	)
 
@@ -487,7 +493,7 @@ func TestGetSecretWithIamTokenCleanup(t *testing.T) {
 	// Access secretID1 with authorizedKey1, IAM token for authorizedKey1 should be cached
 	secretsClient, err := provider.NewClient(ctx, store1, k8sClient, namespace)
 	tassert.Nil(t, err)
-	_, err = secretsClient.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID1})
+	_, err = secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID1})
 	tassert.Nil(t, err)
 
 	tassert.True(t, provider.IsIamTokenCached(authorizedKey1))
@@ -498,7 +504,7 @@ func TestGetSecretWithIamTokenCleanup(t *testing.T) {
 	// Access secretID2 with authorizedKey2, IAM token for authorizedKey2 should be cached
 	secretsClient, err = provider.NewClient(ctx, store2, k8sClient, namespace)
 	tassert.Nil(t, err)
-	_, err = secretsClient.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID2})
+	_, err = secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID2})
 	tassert.Nil(t, err)
 
 	tassert.True(t, provider.IsIamTokenCached(authorizedKey1))
@@ -535,6 +541,7 @@ func TestGetSecretMap(t *testing.T) {
 	k1, v1 := "k1", "v1"
 	k2, v2 := "k2", []byte("v2")
 	secretID, _ := fakeLockboxServer.CreateSecret(authorizedKey,
+		"folderId", "secretName",
 		textEntry(k1, v1),
 		binaryEntry(k2, v2),
 	)
@@ -549,7 +556,7 @@ func TestGetSecretMap(t *testing.T) {
 	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
 	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
 	tassert.Nil(t, err)
-	data, err := secretsClient.GetSecretMap(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID})
+	data, err := secretsClient.GetSecretMap(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID})
 	tassert.Nil(t, err)
 
 	tassert.Equal(
@@ -571,6 +578,7 @@ func TestGetSecretMapByVersionID(t *testing.T) {
 	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, time.Hour)
 	oldKey, oldVal := "oldKey", "oldVal"
 	secretID, oldVersionID := fakeLockboxServer.CreateSecret(authorizedKey,
+		"folderId", "secretName",
 		textEntry(oldKey, oldVal),
 	)
 
@@ -584,56 +592,439 @@ func TestGetSecretMapByVersionID(t *testing.T) {
 	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
 	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
 	tassert.Nil(t, err)
-	data, err := secretsClient.GetSecretMap(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID, Version: oldVersionID})
+	data, err := secretsClient.GetSecretMap(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID, Version: oldVersionID})
 	tassert.Nil(t, err)
 
 	tassert.Equal(t, map[string][]byte{oldKey: []byte(oldVal)}, data)
 
 	newKey, newVal := "newKey", "newVal"
-	newVersionID := fakeLockboxServer.AddVersion(secretID,
-		textEntry(newKey, newVal),
-	)
+	newVersionID := fakeLockboxServer.AddVersion(secretID, textEntry(newKey, newVal))
 
-	data, err = secretsClient.GetSecretMap(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID, Version: oldVersionID})
+	data, err = secretsClient.GetSecretMap(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID, Version: oldVersionID})
 	tassert.Nil(t, err)
 	tassert.Equal(t, map[string][]byte{oldKey: []byte(oldVal)}, data)
 
-	data, err = secretsClient.GetSecretMap(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: secretID, Version: newVersionID})
+	data, err = secretsClient.GetSecretMap(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID, Version: newVersionID})
 	tassert.Nil(t, err)
 	tassert.Equal(t, map[string][]byte{newKey: []byte(newVal)}, data)
 }
 
-// helper functions
+func TestGetSecretWithByNameFetchingPolicyForAllEntries(t *testing.T) {
+	ctx := context.Background()
+	namespace := uuid.NewString()
+	authorizedKey := newFakeAuthorizedKey()
 
-func newLockboxProvider(clock clock.Clock, fakeLockboxServer *client.FakeLockboxServer) *common.YandexCloudProvider {
-	return common.InitYandexCloudProvider(
+	fakeClock := clock.NewFakeClock()
+	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, time.Hour)
+	folderID := uuid.NewString()
+	const secretName = "secretName"
+	k1, v1 := "k1", "v1"
+	k2, v2 := "k2", []byte("v2")
+	_, _ = fakeLockboxServer.CreateSecret(authorizedKey, folderID, secretName, textEntry(k1, v1), binaryEntry(k2, v2))
+
+	k8sClient := clientfake.NewClientBuilder().Build()
+	const authorizedKeySecretName = "authorizedKeySecretName"
+	const authorizedKeySecretKey = "authorizedKeySecretKey"
+	err := createK8sSecret(ctx, t, k8sClient, namespace, authorizedKeySecretName, authorizedKeySecretKey, toJSON(t, authorizedKey))
+	tassert.Nil(t, err)
+	store := newYandexLockboxSecretStoreWithFetchByName("", namespace, authorizedKeySecretName, authorizedKeySecretKey, folderID)
+
+	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
+	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
+	tassert.Nil(t, err)
+
+	data, err := secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretName})
+	tassert.Nil(t, err)
+	expected := map[string]string{
+		k1: base64([]byte(v1)),
+		k2: base64(v2),
+	}
+	tassert.Equal(t, expected, unmarshalStringMap(t, data))
+}
+
+func TestGetSecretWithByNameFetchingPolicyAndVersionID(t *testing.T) {
+	ctx := context.Background()
+	namespace := uuid.NewString()
+	authorizedKey := newFakeAuthorizedKey()
+
+	fakeClock := clock.NewFakeClock()
+	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, time.Hour)
+	folderID := uuid.NewString()
+	const secretName = "secretName"
+	oldKey, oldVal := "oldKey", "oldVal"
+	secretID, oldVersionID := fakeLockboxServer.CreateSecret(authorizedKey, folderID, secretName, textEntry(oldKey, oldVal))
+
+	k8sClient := clientfake.NewClientBuilder().Build()
+	const authorizedKeySecretName = "authorizedKeySecretName"
+	const authorizedKeySecretKey = "authorizedKeySecretKey"
+	err := createK8sSecret(ctx, t, k8sClient, namespace, authorizedKeySecretName, authorizedKeySecretKey, toJSON(t, authorizedKey))
+	tassert.Nil(t, err)
+	store := newYandexLockboxSecretStoreWithFetchByName("", namespace, authorizedKeySecretName, authorizedKeySecretKey, folderID)
+	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
+	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
+	tassert.Nil(t, err)
+	data, err := secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretName, Version: oldVersionID})
+	tassert.Nil(t, err)
+
+	tassert.Equal(t, map[string]string{oldKey: base64([]byte(oldVal))}, unmarshalStringMap(t, data))
+
+	newKey, newVal := "newKey", "newVal"
+	newVersionID := fakeLockboxServer.AddVersion(secretID, textEntry(newKey, newVal))
+
+	data, err = secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretName, Version: oldVersionID})
+	tassert.Nil(t, err)
+	tassert.Equal(t, map[string]string{oldKey: base64([]byte(oldVal))}, unmarshalStringMap(t, data))
+
+	data, err = secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretName, Version: newVersionID})
+	tassert.Nil(t, err)
+	tassert.Equal(t, map[string]string{newKey: base64([]byte(newVal))}, unmarshalStringMap(t, data))
+}
+
+func TestGetSecretWithByNameFetchingPolicyForTextEntry(t *testing.T) {
+	ctx := context.Background()
+	namespace := uuid.NewString()
+	authorizedKey := newFakeAuthorizedKey()
+
+	fakeClock := clock.NewFakeClock()
+	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, time.Hour)
+	folderID := uuid.NewString()
+	const secretName = "secretName"
+	k1, v1 := "k1", "v1"
+	k2, v2 := "k2", []byte("v2")
+	_, _ = fakeLockboxServer.CreateSecret(authorizedKey, folderID, secretName, textEntry(k1, v1), binaryEntry(k2, v2))
+
+	k8sClient := clientfake.NewClientBuilder().Build()
+	const authorizedKeySecretName = "authorizedKeySecretName"
+	const authorizedKeySecretKey = "authorizedKeySecretKey"
+	err := createK8sSecret(ctx, t, k8sClient, namespace, authorizedKeySecretName, authorizedKeySecretKey, toJSON(t, authorizedKey))
+	tassert.Nil(t, err)
+	store := newYandexLockboxSecretStoreWithFetchByName("", namespace, authorizedKeySecretName, authorizedKeySecretKey, folderID)
+	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
+	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
+	tassert.Nil(t, err)
+
+	data, err := secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretName, Property: k1})
+	tassert.Nil(t, err)
+	tassert.Equal(t, v1, string(data))
+}
+
+func TestGetSecretWithByNameFetchingPolicyForBinaryEntry(t *testing.T) {
+	ctx := context.Background()
+	namespace := uuid.NewString()
+	authorizedKey := newFakeAuthorizedKey()
+
+	fakeClock := clock.NewFakeClock()
+	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, time.Hour)
+	folderID := uuid.NewString()
+	const secretName = "secretName"
+	k1, v1 := "k1", "v1"
+	k2, v2 := "k2", []byte("v2")
+	_, _ = fakeLockboxServer.CreateSecret(authorizedKey, folderID, secretName, textEntry(k1, v1), binaryEntry(k2, v2))
+
+	k8sClient := clientfake.NewClientBuilder().Build()
+	const authorizedKeySecretName = "authorizedKeySecretName"
+	const authorizedKeySecretKey = "authorizedKeySecretKey"
+	err := createK8sSecret(ctx, t, k8sClient, namespace, authorizedKeySecretName, authorizedKeySecretKey, toJSON(t, authorizedKey))
+	tassert.Nil(t, err)
+	store := newYandexLockboxSecretStoreWithFetchByName("", namespace, authorizedKeySecretName, authorizedKeySecretKey, folderID)
+	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
+	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
+	tassert.Nil(t, err)
+
+	data, err := secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretName, Property: k2})
+	tassert.Nil(t, err)
+	tassert.Equal(t, v2, data)
+}
+
+func TestGetSecretWithByNameFetchingPolicyNotFound(t *testing.T) {
+	ctx := context.Background()
+	namespace := uuid.NewString()
+	authorizedKey := newFakeAuthorizedKey()
+
+	fakeClock := clock.NewFakeClock()
+	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, time.Hour)
+	folderID := uuid.NewString()
+	k8sClient := clientfake.NewClientBuilder().Build()
+	const authorizedKeySecretName = "authorizedKeySecretName"
+	const authorizedKeySecretKey = "authorizedKeySecretKey"
+	err := createK8sSecret(ctx, t, k8sClient, namespace, authorizedKeySecretName, authorizedKeySecretKey, toJSON(t, authorizedKey))
+	tassert.Nil(t, err)
+	store := newYandexLockboxSecretStoreWithFetchByName("", namespace, authorizedKeySecretName, authorizedKeySecretKey, folderID)
+
+	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
+	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
+	tassert.Nil(t, err)
+
+	_, err = secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: "no-secret-with-such-name"})
+	tassert.EqualError(t, err, errSecretPayloadNotFound)
+	secretName := "secretName"
+	_, _ = fakeLockboxServer.CreateSecret(authorizedKey, folderID, secretName, textEntry("k1", "v1"))
+	_, err = secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretName, Version: "no-version-with-such-id"})
+	tassert.EqualError(t, err, errSecretPayloadVersionNotFound)
+}
+
+func TestGetSecretWithByNameFetchingPolicyUnauthorized(t *testing.T) {
+	ctx := context.Background()
+	namespace := uuid.NewString()
+	authorizedKeyA := newFakeAuthorizedKey()
+	authorizedKeyB := newFakeAuthorizedKey()
+
+	fakeClock := clock.NewFakeClock()
+	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, time.Hour)
+	folderID := uuid.NewString()
+	secretName := "secretName"
+	_, _ = fakeLockboxServer.CreateSecret(authorizedKeyA, folderID, secretName, textEntry("k1", "v1"))
+
+	k8sClient := clientfake.NewClientBuilder().Build()
+	const authorizedKeySecretName = "authorizedKeySecretName"
+	const authorizedKeySecretKey = "authorizedKeySecretKey"
+	err := createK8sSecret(ctx, t, k8sClient, namespace, authorizedKeySecretName, authorizedKeySecretKey, toJSON(t, authorizedKeyB))
+	tassert.Nil(t, err)
+	store := newYandexLockboxSecretStoreWithFetchByName("", namespace, authorizedKeySecretName, authorizedKeySecretKey, folderID)
+
+	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
+	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
+	tassert.Nil(t, err)
+	_, err = secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretName})
+	tassert.EqualError(t, err, errSecretPayloadPermissionDenied)
+}
+
+func TestGetSecretWithByNameFetchingPolicyWithoutFolderID(t *testing.T) {
+	ctx := context.Background()
+	namespace := uuid.NewString()
+	authorizedKey := newFakeAuthorizedKey()
+
+	fakeClock := clock.NewFakeClock()
+	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, time.Hour)
+
+	k8sClient := clientfake.NewClientBuilder().Build()
+	const authorizedKeySecretName = "authorizedKeySecretName"
+	const authorizedKeySecretKey = "authorizedKeySecretKey"
+	err := createK8sSecret(ctx, t, k8sClient, namespace, authorizedKeySecretName, authorizedKeySecretKey, toJSON(t, authorizedKey))
+	tassert.Nil(t, err)
+	store := newYandexLockboxSecretStoreWithFetchByName("", namespace, authorizedKeySecretName, authorizedKeySecretKey, "")
+
+	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
+	_, err = provider.NewClient(ctx, store, k8sClient, namespace)
+	tassert.EqualError(t, err, "folderID is required when fetching policy is 'byName'")
+}
+
+func TesGetSecretWithByIDFetchingPolicyForAllEntries(t *testing.T) {
+	ctx := context.Background()
+	namespace := uuid.NewString()
+	authorizedKey := newFakeAuthorizedKey()
+
+	fakeClock := clock.NewFakeClock()
+	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, time.Hour)
+	k1, v1 := "k1", "v1"
+	k2, v2 := "k2", []byte("v2")
+	secretID, _ := fakeLockboxServer.CreateSecret(authorizedKey,
+		"folderId", "secret",
+		textEntry(k1, v1),
+		binaryEntry(k2, v2),
+	)
+
+	k8sClient := clientfake.NewClientBuilder().Build()
+	const authorizedKeySecretName = "authorizedKeySecretName"
+	const authorizedKeySecretKey = "authorizedKeySecretKey"
+	err := createK8sSecret(ctx, t, k8sClient, namespace, authorizedKeySecretName, authorizedKeySecretKey, toJSON(t, authorizedKey))
+	tassert.Nil(t, err)
+	store := newYandexLockboxSecretStoreWithFetchByID("", namespace, authorizedKeySecretName, authorizedKeySecretKey)
+	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
+	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
+	tassert.Nil(t, err)
+	data, err := secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID})
+	tassert.Nil(t, err)
+	expected := map[string]string{
+		k1: v1,
+		k2: base64(v2),
+	}
+	tassert.Equal(t, expected, unmarshalStringMap(t, data))
+}
+
+func TestGetSecretWithByIDFetchingPolicyForTextEntry(t *testing.T) {
+	ctx := context.Background()
+	namespace := uuid.NewString()
+	authorizedKey := newFakeAuthorizedKey()
+
+	fakeClock := clock.NewFakeClock()
+	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, time.Hour)
+	k1, v1 := "k1", "v1"
+	k2, v2 := "k2", []byte("v2")
+	secretID, _ := fakeLockboxServer.CreateSecret(authorizedKey,
+		"folderId", "secret",
+		textEntry(k1, v1),
+		binaryEntry(k2, v2),
+	)
+
+	k8sClient := clientfake.NewClientBuilder().Build()
+	const authorizedKeySecretName = "authorizedKeySecretName"
+	const authorizedKeySecretKey = "authorizedKeySecretKey"
+	err := createK8sSecret(ctx, t, k8sClient, namespace, authorizedKeySecretName, authorizedKeySecretKey, toJSON(t, authorizedKey))
+	tassert.Nil(t, err)
+	store := newYandexLockboxSecretStoreWithFetchByID("", namespace, authorizedKeySecretName, authorizedKeySecretKey)
+	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
+	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
+	tassert.Nil(t, err)
+	data, err := secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID, Property: k1})
+	tassert.Nil(t, err)
+	tassert.Equal(t, v1, string(data))
+}
+
+func TestGetSecretWithByIDFetchingPolicyForBinaryEntry(t *testing.T) {
+	ctx := context.Background()
+	namespace := uuid.NewString()
+	authorizedKey := newFakeAuthorizedKey()
+
+	fakeClock := clock.NewFakeClock()
+	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, time.Hour)
+	k1, v1 := "k1", "v1"
+	k2, v2 := "k2", []byte("v2")
+	secretID, _ := fakeLockboxServer.CreateSecret(authorizedKey,
+		"folderId", "secret",
+		textEntry(k1, v1),
+		binaryEntry(k2, v2),
+	)
+
+	k8sClient := clientfake.NewClientBuilder().Build()
+	const authorizedKeySecretName = "authorizedKeySecretName"
+	const authorizedKeySecretKey = "authorizedKeySecretKey"
+	err := createK8sSecret(ctx, t, k8sClient, namespace, authorizedKeySecretName, authorizedKeySecretKey, toJSON(t, authorizedKey))
+	tassert.Nil(t, err)
+	store := newYandexLockboxSecretStoreWithFetchByID("", namespace, authorizedKeySecretName, authorizedKeySecretKey)
+	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
+	secretsClient, err := provider.NewClient(ctx, store, k8sClient, namespace)
+	tassert.Nil(t, err)
+	data, err := secretsClient.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: secretID, Property: k2})
+	tassert.Nil(t, err)
+	tassert.Equal(t, v2, data)
+}
+
+func TestGetSecretWithInvalidFetchingPolicy(t *testing.T) {
+	ctx := context.Background()
+	namespace := uuid.NewString()
+	authorizedKey := newFakeAuthorizedKey()
+
+	fakeClock := clock.NewFakeClock()
+	fakeLockboxServer := client.NewFakeLockboxServer(fakeClock, time.Hour)
+	k8sClient := clientfake.NewClientBuilder().Build()
+	const authorizedKeySecretName = "authorizedKeySecretName"
+	const authorizedKeySecretKey = "authorizedKeySecretKey"
+	err := createK8sSecret(
+		ctx, t, k8sClient, namespace,
+		authorizedKeySecretName, authorizedKeySecretKey,
+		toJSON(t, authorizedKey),
+	)
+	tassert.Nil(t, err)
+	store := &esv1.SecretStore{
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace},
+		Spec: esv1.SecretStoreSpec{
+			Provider: &esv1.SecretStoreProvider{
+				YandexLockbox: &esv1.YandexLockboxProvider{
+					Auth: esv1.YandexAuth{
+						AuthorizedKey: esmeta.SecretKeySelector{
+							Name: authorizedKeySecretName,
+							Key:  authorizedKeySecretKey,
+						},
+					},
+					FetchingPolicy: &esv1.FetchingPolicy{
+						ByID:   nil,
+						ByName: nil,
+					},
+				},
+			},
+		},
+	}
+	provider := newLockboxProvider(fakeClock, fakeLockboxServer)
+	_, err = provider.NewClient(ctx, store, k8sClient, namespace)
+	tassert.EqualError(
+		t,
+		err,
+		"invalid Yandex Lockbox SecretStore: requires either 'byName' or 'byID' policy",
+	)
+}
+
+// helper fuxnctions
+
+func newLockboxProvider(clock clock.Clock, fakeLockboxServer *client.FakeLockboxServer) *ydxcommon.YandexCloudProvider {
+	return ydxcommon.InitYandexCloudProvider(
 		ctrl.Log.WithName("provider").WithName("yandex").WithName("lockbox"),
 		clock,
 		adaptInput,
-		func(ctx context.Context, apiEndpoint string, authorizedKey *iamkey.Key, caCertificate []byte) (common.SecretGetter, error) {
+		func(context.Context, string, *iamkey.Key, []byte) (ydxcommon.SecretGetter, error) {
 			return newLockboxSecretGetter(client.NewFakeLockboxClient(fakeLockboxServer))
 		},
-		func(ctx context.Context, apiEndpoint string, authorizedKey *iamkey.Key, caCertificate []byte) (*common.IamToken, error) {
+		func(_ context.Context, _ string, authorizedKey *iamkey.Key, _ []byte) (*ydxcommon.IamToken, error) {
 			return fakeLockboxServer.NewIamToken(authorizedKey), nil
 		},
 		0,
 	)
 }
 
-func newYandexLockboxSecretStore(apiEndpoint, namespace, authorizedKeySecretName, authorizedKeySecretKey string) esv1beta1.GenericStore {
-	return &esv1beta1.SecretStore{
+func newYandexLockboxSecretStore(apiEndpoint, namespace, authorizedKeySecretName, authorizedKeySecretKey string) esv1.GenericStore {
+	return &esv1.SecretStore{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
 		},
-		Spec: esv1beta1.SecretStoreSpec{
-			Provider: &esv1beta1.SecretStoreProvider{
-				YandexLockbox: &esv1beta1.YandexLockboxProvider{
+		Spec: esv1.SecretStoreSpec{
+			Provider: &esv1.SecretStoreProvider{
+				YandexLockbox: &esv1.YandexLockboxProvider{
 					APIEndpoint: apiEndpoint,
-					Auth: esv1beta1.YandexLockboxAuth{
+					Auth: esv1.YandexAuth{
 						AuthorizedKey: esmeta.SecretKeySelector{
 							Name: authorizedKeySecretName,
 							Key:  authorizedKeySecretKey,
 						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func newYandexLockboxSecretStoreWithFetchByName(apiEndpoint, namespace, authorizedKeySecretName, authorizedKeySecretKey, folderID string) esv1.GenericStore {
+	return &esv1.SecretStore{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+		},
+		Spec: esv1.SecretStoreSpec{
+			Provider: &esv1.SecretStoreProvider{
+				YandexLockbox: &esv1.YandexLockboxProvider{
+					APIEndpoint: apiEndpoint,
+					Auth: esv1.YandexAuth{
+						AuthorizedKey: esmeta.SecretKeySelector{
+							Name: authorizedKeySecretName,
+							Key:  authorizedKeySecretKey,
+						},
+					},
+					FetchingPolicy: &esv1.FetchingPolicy{
+						ByName: &esv1.ByName{
+							FolderID: folderID,
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func newYandexLockboxSecretStoreWithFetchByID(apiEndpoint, namespace, authorizedKeySecretName, authorizedKeySecretKey string) esv1.GenericStore {
+	return &esv1.SecretStore{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+		},
+		Spec: esv1.SecretStoreSpec{
+			Provider: &esv1.SecretStoreProvider{
+				YandexLockbox: &esv1.YandexLockboxProvider{
+					APIEndpoint: apiEndpoint,
+					Auth: esv1.YandexAuth{
+						AuthorizedKey: esmeta.SecretKeySelector{
+							Name: authorizedKeySecretName,
+							Key:  authorizedKeySecretKey,
+						},
+					},
+					FetchingPolicy: &esv1.FetchingPolicy{
+						ByID: &esv1.ByID{},
 					},
 				},
 			},

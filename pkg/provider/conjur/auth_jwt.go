@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package conjur implements a provider for Conjur.
 package conjur
 
 import (
@@ -22,15 +25,17 @@ import (
 	authenticationv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
-	"github.com/external-secrets/external-secrets/pkg/utils/resolvers"
+	"github.com/external-secrets/external-secrets/pkg/esutils/resolvers"
 )
 
+// JwtLifespan is the duration in seconds for which the JWT token is valid (10 minutes).
 const JwtLifespan = 600 // 10 minutes
 
-// getJWTToken retrieves a JWT token either using the TokenRequest API for a specified service account, or from a jwt stored in a k8s secret.
-func (c *Client) getJWTToken(ctx context.Context, conjurJWTConfig *esv1beta1.ConjurJWT) (string, error) {
+// getJWTToken retrieves a JWT token either using the TokenRequest API for a specified service account,
+// or from a JWT stored in a k8s secret.
+func (c *Client) getJWTToken(ctx context.Context, conjurJWTConfig *esv1.ConjurJWT) (string, error) {
 	if conjurJWTConfig.ServiceAccountRef != nil {
 		// Should work for Kubernetes >=v1.22: fetch token via TokenRequest API
 		jwtToken, err := c.getJwtFromServiceAccountTokenRequest(ctx, *conjurJWTConfig.ServiceAccountRef, nil, JwtLifespan)
@@ -44,14 +49,10 @@ func (c *Client) getJWTToken(ctx context.Context, conjurJWTConfig *esv1beta1.Con
 			tokenRef = conjurJWTConfig.SecretRef.DeepCopy()
 			tokenRef.Key = "token"
 		}
-		jwtToken, err := resolvers.SecretKeyRef(
-			ctx,
-			c.kube,
-			c.StoreKind,
-			c.namespace,
-			tokenRef)
+
+		jwtToken, err := resolvers.SecretKeyRef(ctx, c.kube, c.StoreKind, c.namespace, tokenRef)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("could not get JWT token from secret: %w", err)
 		}
 		return jwtToken, nil
 	}
@@ -73,7 +74,7 @@ func (c *Client) getJwtFromServiceAccountTokenRequest(ctx context.Context, servi
 			ExpirationSeconds: &expirationSeconds,
 		},
 	}
-	if (c.StoreKind == esv1beta1.ClusterSecretStoreKind) &&
+	if (c.StoreKind == esv1.ClusterSecretStoreKind) &&
 		(serviceAccountRef.Namespace != nil) {
 		tokenRequest.Namespace = *serviceAccountRef.Namespace
 	}

@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package chef implements a provider for Chef Infra Server secret management.
 package chef
 
 import (
@@ -23,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/external-secrets/external-secrets/pkg/metrics"
 	"github.com/go-chef/chef"
 	"github.com/go-logr/logr"
 	"github.com/tidwall/gjson"
@@ -32,9 +36,8 @@ import (
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
-	"github.com/external-secrets/external-secrets/pkg/metrics"
-	"github.com/external-secrets/external-secrets/pkg/utils"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
 )
 
 const (
@@ -63,23 +66,33 @@ const (
 	errInvalidDataform                       = "invalid key format in dataForm section. Expected only 'databagName'"
 	errNotImplemented                        = "not implemented"
 
-	ProviderChef             = "Chef"
-	CallChefGetDataBagItem   = "GetDataBagItem"
+	// ProviderChef is the name of the Chef Infra Server provider.
+	ProviderChef = "Chef"
+
+	// CallChefGetDataBagItem is the metric name for getting a data bag item.
+	CallChefGetDataBagItem = "GetDataBagItem"
+
+	// CallChefListDataBagItems is the metric name for listing data bag items from a data bag.
 	CallChefListDataBagItems = "ListDataBagItems"
-	CallChefGetUser          = "GetUser"
+
+	// CallChefGetUser is the metric name for getting user information.
+	CallChefGetUser = "GetUser"
 )
 
 var contextTimeout = time.Second * 25
 
+// DatabagFetcher defines the interface for fetching data bags from Chef Infra Server.
 type DatabagFetcher interface {
 	GetItem(databagName string, databagItem string) (item chef.DataBagItem, err error)
 	ListItems(name string) (data *chef.DataBagListResult, err error)
 }
 
+// UserInterface defines the interface for interacting with Chef Infra Server users.
 type UserInterface interface {
 	Get(name string) (user chef.User, err error)
 }
 
+// Providerchef implements the Provider interface for Chef Infra Server.
 type Providerchef struct {
 	clientName     string
 	databagService DatabagFetcher
@@ -87,16 +100,17 @@ type Providerchef struct {
 	log            logr.Logger
 }
 
-var _ v1beta1.SecretsClient = &Providerchef{}
-var _ v1beta1.Provider = &Providerchef{}
+var _ esv1.SecretsClient = &Providerchef{}
+var _ esv1.Provider = &Providerchef{}
 
 func init() {
-	v1beta1.Register(&Providerchef{}, &v1beta1.SecretStoreProvider{
-		Chef: &v1beta1.ChefProvider{},
-	})
+	esv1.Register(&Providerchef{}, &esv1.SecretStoreProvider{
+		Chef: &esv1.ChefProvider{},
+	}, esv1.MaintenanceStatusMaintained)
 }
 
-func (providerchef *Providerchef) NewClient(ctx context.Context, store v1beta1.GenericStore, kube kclient.Client, namespace string) (v1beta1.SecretsClient, error) {
+// NewClient creates a new Chef Infra Server client.
+func (providerchef *Providerchef) NewClient(ctx context.Context, store esv1.GenericStore, kube kclient.Client, namespace string) (esv1.SecretsClient, error) {
 	chefProvider, err := getChefProvider(store)
 	if err != nil {
 		return nil, fmt.Errorf(errChefProvider, err)
@@ -108,7 +122,7 @@ func (providerchef *Providerchef) NewClient(ctx context.Context, store v1beta1.G
 		Namespace: namespace,
 	}
 
-	if store.GetObjectKind().GroupVersionKind().Kind == v1beta1.ClusterSecretStoreKind {
+	if store.GetObjectKind().GroupVersionKind().Kind == esv1.ClusterSecretStoreKind {
 		if chefProvider.Auth.SecretRef.SecretKey.Namespace == nil {
 			return nil, errors.New(errInvalidClusterStoreMissingPKNamespace)
 		}
@@ -147,23 +161,23 @@ func (providerchef *Providerchef) Close(_ context.Context) error {
 
 // Validate checks if the client is configured correctly
 // to be able to retrieve secrets from the provider.
-func (providerchef *Providerchef) Validate() (v1beta1.ValidationResult, error) {
+func (providerchef *Providerchef) Validate() (esv1.ValidationResult, error) {
 	_, err := providerchef.userService.Get(providerchef.clientName)
 	metrics.ObserveAPICall(ProviderChef, CallChefGetUser, err)
 	if err != nil {
-		return v1beta1.ValidationResultError, errors.New(errStoreValidateFailed)
+		return esv1.ValidationResultError, errors.New(errStoreValidateFailed)
 	}
-	return v1beta1.ValidationResultReady, nil
+	return esv1.ValidationResultReady, nil
 }
 
 // GetAllSecrets Retrieves a map[string][]byte with the Databag names as key and the Databag's Items as secrets.
-func (providerchef *Providerchef) GetAllSecrets(_ context.Context, _ v1beta1.ExternalSecretFind) (map[string][]byte, error) {
+func (providerchef *Providerchef) GetAllSecrets(_ context.Context, _ esv1.ExternalSecretFind) (map[string][]byte, error) {
 	return nil, errors.New("dataFrom.find not suppported")
 }
 
 // GetSecret returns a databagItem present in the databag. format example: databagName/databagItemName.
-func (providerchef *Providerchef) GetSecret(ctx context.Context, ref v1beta1.ExternalSecretDataRemoteRef) ([]byte, error) {
-	if utils.IsNil(providerchef.databagService) {
+func (providerchef *Providerchef) GetSecret(ctx context.Context, ref esv1.ExternalSecretDataRemoteRef) ([]byte, error) {
+	if esutils.IsNil(providerchef.databagService) {
 		return nil, errors.New(errUninitalizedChefProvider)
 	}
 
@@ -250,8 +264,8 @@ func getPropertyFromDatabagItem(jsonByte []byte, propertyName string) ([]byte, e
 // GetSecretMap returns multiple k/v pairs from the provider, for dataFrom.extract.key
 // dataFrom.extract.key only accepts dataBagName, example : dataFrom.extract.key: myDatabag
 // databagItemName or Property not expected in key.
-func (providerchef *Providerchef) GetSecretMap(ctx context.Context, ref v1beta1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
-	if utils.IsNil(providerchef.databagService) {
+func (providerchef *Providerchef) GetSecretMap(ctx context.Context, ref esv1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
+	if esutils.IsNil(providerchef.databagService) {
 		return nil, errors.New(errUninitalizedChefProvider)
 	}
 	databagName := ref.Key
@@ -278,20 +292,20 @@ func (providerchef *Providerchef) GetSecretMap(ctx context.Context, ref v1beta1.
 }
 
 // ValidateStore checks if the provided store is valid.
-func (providerchef *Providerchef) ValidateStore(store v1beta1.GenericStore) (admission.Warnings, error) {
+func (providerchef *Providerchef) ValidateStore(store esv1.GenericStore) (admission.Warnings, error) {
 	chefProvider, err := getChefProvider(store)
 	if err != nil {
 		return nil, fmt.Errorf(errChefStore, err)
 	}
 	// check namespace compared to kind
-	if err := utils.ValidateSecretSelector(store, chefProvider.Auth.SecretRef.SecretKey); err != nil {
+	if err := esutils.ValidateSecretSelector(store, chefProvider.Auth.SecretRef.SecretKey); err != nil {
 		return nil, fmt.Errorf(errChefStore, err)
 	}
 	return nil, nil
 }
 
 // getChefProvider validates the incoming store and return the chef provider.
-func getChefProvider(store v1beta1.GenericStore) (*v1beta1.ChefProvider, error) {
+func getChefProvider(store esv1.GenericStore) (*esv1.ChefProvider, error) {
 	if store == nil {
 		return nil, errors.New(errMissingStore)
 	}
@@ -330,21 +344,22 @@ func getChefProvider(store v1beta1.GenericStore) (*v1beta1.ChefProvider, error) 
 	return chefProvider, nil
 }
 
-// Not Implemented DeleteSecret.
-func (providerchef *Providerchef) DeleteSecret(_ context.Context, _ v1beta1.PushSecretRemoteRef) error {
+// DeleteSecret implements the delete operation for Chef Infra Server secrets. Currently not implemented.
+func (providerchef *Providerchef) DeleteSecret(_ context.Context, _ esv1.PushSecretRemoteRef) error {
 	return errors.New(errNotImplemented)
 }
 
-// Not Implemented PushSecret.
-func (providerchef *Providerchef) PushSecret(_ context.Context, _ *corev1.Secret, _ v1beta1.PushSecretData) error {
+// PushSecret implements the push operation for Chef Infra Server secrets. Currently not implemented.
+func (providerchef *Providerchef) PushSecret(_ context.Context, _ *corev1.Secret, _ esv1.PushSecretData) error {
 	return errors.New(errNotImplemented)
 }
 
-func (providerchef *Providerchef) SecretExists(_ context.Context, _ v1beta1.PushSecretRemoteRef) (bool, error) {
+// SecretExists checks if a secret exists in Chef Infra Server.
+func (providerchef *Providerchef) SecretExists(_ context.Context, _ esv1.PushSecretRemoteRef) (bool, error) {
 	return false, errors.New(errNotImplemented)
 }
 
 // Capabilities return the provider supported capabilities (ReadOnly, WriteOnly, ReadWrite).
-func (providerchef *Providerchef) Capabilities() v1beta1.SecretStoreCapabilities {
-	return v1beta1.SecretStoreReadOnly
+func (providerchef *Providerchef) Capabilities() esv1.SecretStoreCapabilities {
+	return esv1.SecretStoreReadOnly
 }

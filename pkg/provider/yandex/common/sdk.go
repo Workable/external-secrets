@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package common
+package ydxcommon
 
 import (
 	"context"
@@ -29,7 +31,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
-// Creates a connection to the given Yandex.Cloud API endpoint.
+// NewGrpcConnection creates a connection to the given Yandex.Cloud API endpoint.
 func NewGrpcConnection(
 	ctx context.Context,
 	apiEndpoint string,
@@ -37,12 +39,12 @@ func NewGrpcConnection(
 	authorizedKey *iamkey.Key,
 	caCertificate []byte,
 ) (*grpc.ClientConn, error) {
-	tlsConfig, err := tlsConfig(caCertificate)
+	tlsConf, err := tlsConfig(caCertificate)
 	if err != nil {
 		return nil, err
 	}
 
-	sdk, err := buildSDK(ctx, apiEndpoint, authorizedKey, tlsConfig)
+	sdk, err := buildSDK(ctx, apiEndpoint, authorizedKey, tlsConf)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +69,7 @@ func NewGrpcConnection(
 	// instead of grpc.NewClient used here
 	target := "passthrough:///" + serviceAPIEndpoint.Address
 	return grpc.NewClient(target,
-		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsConf)),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                time.Second * 30,
 			Timeout:             time.Second * 10,
@@ -77,14 +79,14 @@ func NewGrpcConnection(
 	)
 }
 
-// Exchanges the given authorized key to an IAM token.
+// NewIamToken exchanges the given authorized key to an IAM token.
 func NewIamToken(ctx context.Context, apiEndpoint string, authorizedKey *iamkey.Key, caCertificate []byte) (*IamToken, error) {
-	tlsConfig, err := tlsConfig(caCertificate)
+	config, err := tlsConfig(caCertificate)
 	if err != nil {
 		return nil, err
 	}
 
-	sdk, err := buildSDK(ctx, apiEndpoint, authorizedKey, tlsConfig)
+	sdk, err := buildSDK(ctx, apiEndpoint, authorizedKey, config)
 	if err != nil {
 		return nil, err
 	}
@@ -101,22 +103,28 @@ func NewIamToken(ctx context.Context, apiEndpoint string, authorizedKey *iamkey.
 }
 
 func tlsConfig(caCertificate []byte) (*tls.Config, error) {
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+	config := &tls.Config{MinVersion: tls.VersionTLS12}
 	if caCertificate != nil {
 		caCertPool := x509.NewCertPool()
 		ok := caCertPool.AppendCertsFromPEM(caCertificate)
 		if !ok {
 			return nil, errors.New("unable to read trusted CA certificates")
 		}
-		tlsConfig.RootCAs = caCertPool
+		config.RootCAs = caCertPool
 	}
-	return tlsConfig, nil
+	return config, nil
 }
 
 func buildSDK(ctx context.Context, apiEndpoint string, authorizedKey *iamkey.Key, tlsConfig *tls.Config) (*ycsdk.SDK, error) {
-	creds, err := ycsdk.ServiceAccountKey(authorizedKey)
-	if err != nil {
-		return nil, err
+	var creds ycsdk.Credentials
+	if authorizedKey != nil {
+		var err error
+		creds, err = ycsdk.ServiceAccountKey(authorizedKey)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		creds = ycsdk.InstanceServiceAccount()
 	}
 
 	sdk, err := ycsdk.Build(ctx, ycsdk.Config{
@@ -135,14 +143,17 @@ func closeSDK(ctx context.Context, sdk *ycsdk.SDK) error {
 	return sdk.Shutdown(ctx)
 }
 
+// PerRPCCredentials implements the grpc.PerRPCCredentials interface for IAM token authentication.
 type PerRPCCredentials struct {
 	IamToken string
 }
 
+// GetRequestMetadata returns the request metadata to be used in gRPC requests.
 func (t PerRPCCredentials) GetRequestMetadata(_ context.Context, _ ...string) (map[string]string, error) {
 	return map[string]string{"Authorization": "Bearer " + t.IamToken}, nil
 }
 
+// RequireTransportSecurity indicates whether the credentials require transport security.
 func (PerRPCCredentials) RequireTransportSecurity() bool {
 	return true
 }

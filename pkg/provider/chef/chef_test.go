@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+	https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,10 +29,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	v1 "github.com/external-secrets/external-secrets/apis/meta/v1"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
 	fake "github.com/external-secrets/external-secrets/pkg/provider/chef/fake"
-	"github.com/external-secrets/external-secrets/pkg/utils"
 )
 
 const (
@@ -42,7 +44,7 @@ const (
 	authKey                  = "chef-demo-auth-key"
 	authNamespace            = "chef-demo-auth-namespace"
 	kind                     = "SecretStore"
-	apiversion               = "external-secrets.io/v1beta1"
+	apiversion               = "external-secrets.io/v1"
 	databagName              = "databag01"
 )
 
@@ -51,7 +53,7 @@ type chefTestCase struct {
 	databagName     string
 	databagItemName string
 	property        string
-	ref             *esv1beta1.ExternalSecretDataRemoteRef
+	ref             *esv1.ExternalSecretDataRemoteRef
 	apiErr          error
 	expectError     string
 	expectedData    map[string][]byte
@@ -59,11 +61,11 @@ type chefTestCase struct {
 }
 
 type ValidateStoreTestCase struct {
-	store *esv1beta1.SecretStore
+	store *esv1.SecretStore
 	err   error
 }
 
-// type storeModifier func(*esv1beta1.SecretStore) *esv1beta1.SecretStore
+// type storeModifier func(*esv1.SecretStore) *esv1.SecretStore
 
 func makeValidChefTestCase() *chefTestCase {
 	smtc := chefTestCase{
@@ -101,21 +103,21 @@ func makeInValidChefTestCase() *chefTestCase {
 	return &smtc
 }
 
-func makeValidRef(databag, dataitem, property string) *esv1beta1.ExternalSecretDataRemoteRef {
-	return &esv1beta1.ExternalSecretDataRemoteRef{
+func makeValidRef(databag, dataitem, property string) *esv1.ExternalSecretDataRemoteRef {
+	return &esv1.ExternalSecretDataRemoteRef{
 		Key:      databag + "/" + dataitem,
 		Property: property,
 	}
 }
 
-func makeinValidRef() *esv1beta1.ExternalSecretDataRemoteRef {
-	return &esv1beta1.ExternalSecretDataRemoteRef{
+func makeinValidRef() *esv1.ExternalSecretDataRemoteRef {
+	return &esv1.ExternalSecretDataRemoteRef{
 		Key: "",
 	}
 }
 
-func makeValidRefForGetSecretMap(databag string) *esv1beta1.ExternalSecretDataRemoteRef {
-	return &esv1beta1.ExternalSecretDataRemoteRef{
+func makeValidRefForGetSecretMap(databag string) *esv1.ExternalSecretDataRemoteRef {
+	return &esv1.ExternalSecretDataRemoteRef{
 		Key: databag,
 	}
 }
@@ -183,7 +185,7 @@ func TestChefGetSecret(t *testing.T) {
 	for k, v := range successCases {
 		sm.databagService = v.mockClient
 		out, err := sm.GetSecret(ctx, *v.ref)
-		if err != nil && !utils.ErrorContains(err, v.expectError) {
+		if err != nil && !esutils.ErrorContains(err, v.expectError) {
 			t.Errorf("[case %d] expected error: %v, got: %v", k, v.expectError, err)
 		} else if v.expectError != "" && err == nil {
 			t.Errorf("[case %d] expected error: %v, got: nil", k, v.expectError)
@@ -236,7 +238,7 @@ func TestChefGetSecretMap(t *testing.T) {
 	for k, v := range successCases {
 		pc.databagService = v.mockClient
 		out, err := pc.GetSecretMap(ctx, *v.ref)
-		if err != nil && !utils.ErrorContains(err, v.expectError) {
+		if err != nil && !esutils.ErrorContains(err, v.expectError) {
 			t.Errorf("[case %d] expected error: %v, got: %v", k, v.expectError, err)
 		} else if v.expectError != "" && err == nil {
 			t.Errorf("[case %d] expected error: %v, got: nil", k, v.expectError)
@@ -247,11 +249,11 @@ func TestChefGetSecretMap(t *testing.T) {
 	}
 }
 
-func makeSecretStore(name, baseURL string, auth *esv1beta1.ChefAuth) *esv1beta1.SecretStore {
-	store := &esv1beta1.SecretStore{
-		Spec: esv1beta1.SecretStoreSpec{
-			Provider: &esv1beta1.SecretStoreProvider{
-				Chef: &esv1beta1.ChefProvider{
+func makeSecretStore(name, baseURL string, auth *esv1.ChefAuth) *esv1.SecretStore {
+	store := &esv1.SecretStore{
+		Spec: esv1.SecretStoreSpec{
+			Provider: &esv1.SecretStoreProvider{
+				Chef: &esv1.ChefProvider{
 					UserName:  name,
 					ServerURL: baseURL,
 					Auth:      auth,
@@ -262,9 +264,9 @@ func makeSecretStore(name, baseURL string, auth *esv1beta1.ChefAuth) *esv1beta1.
 	return store
 }
 
-func makeAuth(name, namespace, key string) *esv1beta1.ChefAuth {
-	return &esv1beta1.ChefAuth{
-		SecretRef: esv1beta1.ChefAuthSecretRef{
+func makeAuth(name, namespace, key string) *esv1.ChefAuth {
+	return &esv1.ChefAuth{
+		SecretRef: esv1.ChefAuthSecretRef{
 			SecretKey: v1.SecretKeySelector{
 				Name:      name,
 				Key:       key,
@@ -305,17 +307,17 @@ func TestValidateStore(t *testing.T) {
 			err:   errors.New("received invalid Chef SecretStore resource: namespace should either be empty or match the namespace of the SecretStore for a namespaced SecretStore"),
 		},
 		{
-			store: &esv1beta1.SecretStore{
-				Spec: esv1beta1.SecretStoreSpec{
+			store: &esv1.SecretStore{
+				Spec: esv1.SecretStoreSpec{
 					Provider: nil,
 				},
 			},
 			err: errors.New("received invalid Chef SecretStore resource: missing provider"),
 		},
 		{
-			store: &esv1beta1.SecretStore{
-				Spec: esv1beta1.SecretStoreSpec{
-					Provider: &esv1beta1.SecretStoreProvider{
+			store: &esv1.SecretStore{
+				Spec: esv1.SecretStoreSpec{
+					Provider: &esv1.SecretStoreProvider{
 						Chef: nil,
 					},
 				},
@@ -337,10 +339,10 @@ func TestValidateStore(t *testing.T) {
 }
 
 func TestNewClient(t *testing.T) {
-	store := &esv1beta1.SecretStore{TypeMeta: metav1.TypeMeta{Kind: "ClusterSecretStore"},
-		Spec: esv1beta1.SecretStoreSpec{
-			Provider: &esv1beta1.SecretStoreProvider{
-				Chef: &esv1beta1.ChefProvider{
+	store := &esv1.SecretStore{TypeMeta: metav1.TypeMeta{Kind: "ClusterSecretStore"},
+		Spec: esv1.SecretStoreSpec{
+			Provider: &esv1.SecretStoreProvider{
+				Chef: &esv1.ChefProvider{
 					Auth:      makeAuth(authName, authNamespace, authKey),
 					UserName:  name,
 					ServerURL: baseURL,
@@ -412,7 +414,7 @@ func TestClose(_ *testing.T) {
 // Test Cases To be added when GetAllSecrets function is implemented.
 func TestGetAllSecrets(_ *testing.T) {
 	pc := Providerchef{}
-	pc.GetAllSecrets(context.Background(), esv1beta1.ExternalSecretFind{})
+	pc.GetAllSecrets(context.Background(), esv1.ExternalSecretFind{})
 }
 
 // Test Cases To be implemented when DeleteSecret function is implemented.

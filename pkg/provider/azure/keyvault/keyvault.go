@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package keyvault implements a provider for Azure Key Vault secrets, allowing
+// External Secrets to read from and write to Azure Key Vault.
 package keyvault
 
 import (
@@ -24,10 +28,15 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azcertificates"
+	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys"
+	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
 	"github.com/Azure/azure-sdk-for-go/services/keyvault/v7.0/keyvault"
 	"github.com/Azure/go-autorest/autorest"
 	"github.com/Azure/go-autorest/autorest/adal"
@@ -50,23 +59,30 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	gopkcs12 "software.sslmate.com/src/go-pkcs12"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	"github.com/external-secrets/external-secrets/pkg/constants"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
+	"github.com/external-secrets/external-secrets/pkg/esutils/metadata"
+	"github.com/external-secrets/external-secrets/pkg/esutils/resolvers"
 	"github.com/external-secrets/external-secrets/pkg/metrics"
-	"github.com/external-secrets/external-secrets/pkg/utils"
-	"github.com/external-secrets/external-secrets/pkg/utils/metadata"
-	"github.com/external-secrets/external-secrets/pkg/utils/resolvers"
 )
 
 const (
-	defaultObjType       = "secret"
-	objectTypeCert       = "cert"
-	objectTypeKey        = "key"
+	defaultObjType = "secret"
+	objectTypeCert = "cert"
+	objectTypeKey  = "key"
+
+	// AzureDefaultAudience is the default audience used for Azure AD token exchange.
 	AzureDefaultAudience = "api://AzureADTokenExchange"
-	AnnotationClientID   = "azure.workload.identity/client-id"
-	AnnotationTenantID   = "azure.workload.identity/tenant-id"
-	managerLabel         = "external-secrets"
-	managedBy            = "managed-by"
+
+	// AnnotationClientID is the annotation key for Azure Workload Identity client ID.
+	AnnotationClientID = "azure.workload.identity/client-id"
+
+	// AnnotationTenantID is the annotation key for Azure Workload Identity tenant ID.
+	AnnotationTenantID = "azure.workload.identity/tenant-id"
+
+	managerLabel = "external-secrets"
+	managedBy    = "managed-by"
 
 	errUnexpectedStoreSpec      = "unexpected store spec"
 	errMissingAuthType          = "cannot initialize Azure Client: no valid authType was specified"
@@ -97,10 +113,10 @@ const (
 )
 
 // https://github.com/external-secrets/external-secrets/issues/644
-var _ esv1beta1.SecretsClient = &Azure{}
-var _ esv1beta1.Provider = &Azure{}
+var _ esv1.SecretsClient = &Azure{}
+var _ esv1.Provider = &Azure{}
 
-// interface to keyvault.BaseClient.
+// SecretClient is an interface to keyvault.BaseClient.
 type SecretClient interface {
 	GetKey(ctx context.Context, vaultBaseURL string, keyName string, keyVersion string) (result keyvault.KeyBundle, err error)
 	GetSecret(ctx context.Context, vaultBaseURL string, secretName string, secretVersion string) (result keyvault.SecretBundle, err error)
@@ -114,37 +130,47 @@ type SecretClient interface {
 	DeleteSecret(ctx context.Context, vaultBaseURL string, secretName string) (result keyvault.DeletedSecretBundle, err error)
 }
 
+// Azure implements the External Secrets provider for Azure Key Vault.
 type Azure struct {
 	crClient   client.Client
 	kubeClient kcorev1.CoreV1Interface
-	store      esv1beta1.GenericStore
-	provider   *esv1beta1.AzureKVProvider
-	baseClient SecretClient
+	store      esv1.GenericStore
+	provider   *esv1.AzureKVProvider
 	namespace  string
+
+	// Legacy go-autorest client
+	baseClient SecretClient
+
+	// New Azure SDK clients (used when UseAzureSDK is true)
+	secretsClient *azsecrets.Client
+	keysClient    *azkeys.Client
+	certsClient   *azcertificates.Client
 }
 
+// PushSecretMetadataSpec defines metadata for pushing secrets to Azure Key Vault,
+// including expiration date and tags.
 type PushSecretMetadataSpec struct {
 	ExpirationDate string            `json:"expirationDate,omitempty"`
 	Tags           map[string]string `json:"tags,omitempty"`
 }
 
 func init() {
-	esv1beta1.Register(&Azure{}, &esv1beta1.SecretStoreProvider{
-		AzureKV: &esv1beta1.AzureKVProvider{},
-	})
+	esv1.Register(&Azure{}, &esv1.SecretStoreProvider{
+		AzureKV: &esv1.AzureKVProvider{},
+	}, esv1.MaintenanceStatusMaintained)
 }
 
 // Capabilities return the provider supported capabilities (ReadOnly, WriteOnly, ReadWrite).
-func (a *Azure) Capabilities() esv1beta1.SecretStoreCapabilities {
-	return esv1beta1.SecretStoreReadWrite
+func (a *Azure) Capabilities() esv1.SecretStoreCapabilities {
+	return esv1.SecretStoreReadWrite
 }
 
 // NewClient constructs a new secrets client based on the provided store.
-func (a *Azure) NewClient(ctx context.Context, store esv1beta1.GenericStore, kube client.Client, namespace string) (esv1beta1.SecretsClient, error) {
+func (a *Azure) NewClient(ctx context.Context, store esv1.GenericStore, kube client.Client, namespace string) (esv1.SecretsClient, error) {
 	return newClient(ctx, store, kube, namespace)
 }
 
-func newClient(ctx context.Context, store esv1beta1.GenericStore, kube client.Client, namespace string) (esv1beta1.SecretsClient, error) {
+func newClient(ctx context.Context, store esv1.GenericStore, kube client.Client, namespace string) (esv1.SecretsClient, error) {
 	provider, err := getProvider(store)
 	if err != nil {
 		return nil, err
@@ -167,32 +193,106 @@ func newClient(ctx context.Context, store esv1beta1.GenericStore, kube client.Cl
 
 	// allow SecretStore controller validation to pass
 	// when using referent namespace.
-	if store.GetKind() == esv1beta1.ClusterSecretStoreKind &&
+	if store.GetKind() == esv1.ClusterSecretStoreKind &&
 		namespace == "" &&
 		isReferentSpec(provider) {
 		return az, nil
 	}
 
+	// Check if the new Azure SDK should be used
+	if provider.UseAzureSDK != nil && *provider.UseAzureSDK {
+		err = initializeNewAzureSDK(ctx, az)
+	} else {
+		err = initializeLegacyClient(ctx, az)
+	}
+
+	return az, err
+}
+
+// initializeLegacyClient sets up the Azure Key Vault client using the legacy go-autorest SDK.
+func initializeLegacyClient(ctx context.Context, az *Azure) error {
 	var authorizer autorest.Authorizer
-	switch *provider.AuthType {
-	case esv1beta1.AzureManagedIdentity:
+	var err error
+
+	switch *az.provider.AuthType {
+	case esv1.AzureManagedIdentity:
 		authorizer, err = az.authorizerForManagedIdentity()
-	case esv1beta1.AzureServicePrincipal:
+	case esv1.AzureServicePrincipal:
 		authorizer, err = az.authorizerForServicePrincipal(ctx)
-	case esv1beta1.AzureWorkloadIdentity:
+	case esv1.AzureWorkloadIdentity:
 		authorizer, err = az.authorizerForWorkloadIdentity(ctx, NewTokenProvider)
 	default:
-		err = errors.New(errMissingAuthType)
+		return errors.New(errMissingAuthType)
+	}
+
+	if err != nil {
+		return err
 	}
 
 	cl := keyvault.New()
 	cl.Authorizer = authorizer
 	az.baseClient = &cl
 
-	return az, err
+	return nil
 }
 
-func getProvider(store esv1beta1.GenericStore) (*esv1beta1.AzureKVProvider, error) {
+// initializeNewAzureSDK sets up the Azure Key Vault client using the new azcore-based SDK.
+func initializeNewAzureSDK(ctx context.Context, az *Azure) error {
+	// Get cloud configuration
+	cloudConfig, err := getCloudConfiguration(az.provider)
+	if err != nil {
+		return fmt.Errorf("failed to get cloud configuration: %w", err)
+	}
+
+	// Build credential based on auth type
+	var credential azcore.TokenCredential
+
+	switch *az.provider.AuthType {
+	case esv1.AzureManagedIdentity:
+		credential, err = buildManagedIdentityCredential(az, cloudConfig)
+	case esv1.AzureServicePrincipal:
+		credential, err = buildServicePrincipalCredential(ctx, az, cloudConfig)
+	case esv1.AzureWorkloadIdentity:
+		credential, err = buildWorkloadIdentityCredential(ctx, az, cloudConfig)
+	default:
+		return errors.New(errMissingAuthType)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	// Create Azure SDK clients and store them directly
+	az.secretsClient, err = azsecrets.NewClient(*az.provider.VaultURL, credential, &azsecrets.ClientOptions{
+		ClientOptions: azcore.ClientOptions{Cloud: cloudConfig},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create secrets client: %w", err)
+	}
+
+	az.keysClient, err = azkeys.NewClient(*az.provider.VaultURL, credential, &azkeys.ClientOptions{
+		ClientOptions: azcore.ClientOptions{Cloud: cloudConfig},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create keys client: %w", err)
+	}
+
+	az.certsClient, err = azcertificates.NewClient(*az.provider.VaultURL, credential, &azcertificates.ClientOptions{
+		ClientOptions: azcore.ClientOptions{Cloud: cloudConfig},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create certificates client: %w", err)
+	}
+
+	return nil
+}
+
+// useNewSDK returns true if the new Azure SDK should be used.
+func (a *Azure) useNewSDK() bool {
+	return a.provider.UseAzureSDK != nil && *a.provider.UseAzureSDK
+}
+
+func getProvider(store esv1.GenericStore) (*esv1.AzureKVProvider, error) {
 	spc := store.GetSpec()
 	if spc == nil || spc.Provider.AzureKV == nil {
 		return nil, errors.New(errUnexpectedStoreSpec)
@@ -201,7 +301,8 @@ func getProvider(store esv1beta1.GenericStore) (*esv1beta1.AzureKVProvider, erro
 	return spc.Provider.AzureKV, nil
 }
 
-func (a *Azure) ValidateStore(store esv1beta1.GenericStore) (admission.Warnings, error) {
+// ValidateStore validates the Azure Key Vault provider configuration.
+func (a *Azure) ValidateStore(store esv1.GenericStore) (admission.Warnings, error) {
 	if store == nil {
 		return nil, errors.New(errInvalidStore)
 	}
@@ -218,21 +319,41 @@ func (a *Azure) ValidateStore(store esv1beta1.GenericStore) (admission.Warnings,
 	}
 	if p.AuthSecretRef != nil {
 		if p.AuthSecretRef.ClientID != nil {
-			if err := utils.ValidateReferentSecretSelector(store, *p.AuthSecretRef.ClientID); err != nil {
+			if err := esutils.ValidateReferentSecretSelector(store, *p.AuthSecretRef.ClientID); err != nil {
 				return nil, fmt.Errorf(errInvalidSecRefClientID, err)
 			}
 		}
 		if p.AuthSecretRef.ClientSecret != nil {
-			if err := utils.ValidateReferentSecretSelector(store, *p.AuthSecretRef.ClientSecret); err != nil {
+			if err := esutils.ValidateReferentSecretSelector(store, *p.AuthSecretRef.ClientSecret); err != nil {
 				return nil, fmt.Errorf(errInvalidSecRefClientSecret, err)
 			}
 		}
 	}
 	if p.ServiceAccountRef != nil {
-		if err := utils.ValidateReferentServiceAccountSelector(store, *p.ServiceAccountRef); err != nil {
+		if err := esutils.ValidateReferentServiceAccountSelector(store, *p.ServiceAccountRef); err != nil {
 			return nil, fmt.Errorf(errInvalidSARef, err)
 		}
 	}
+
+	// Validate Azure Stack Cloud configuration
+	if p.EnvironmentType == esv1.AzureEnvironmentAzureStackCloud {
+		// Azure Stack requires custom cloud config
+		if p.CustomCloudConfig == nil {
+			return nil, errors.New("CustomCloudConfig is required when EnvironmentType is AzureStackCloud")
+		}
+		// Azure Stack requires new SDK
+		if p.UseAzureSDK == nil || !*p.UseAzureSDK {
+			return nil, errors.New("AzureStackCloud environment requires UseAzureSDK to be set to true - the legacy SDK does not support custom clouds")
+		}
+		// Validate required fields
+		if p.CustomCloudConfig.ActiveDirectoryEndpoint == "" {
+			return nil, errors.New("activeDirectoryEndpoint is required in CustomCloudConfig")
+		}
+	} else if p.CustomCloudConfig != nil {
+		// CustomCloudConfig should only be used with AzureStackCloud
+		return nil, errors.New("CustomCloudConfig should only be specified when EnvironmentType is AzureStackCloud")
+	}
+
 	return nil, nil
 }
 
@@ -306,22 +427,37 @@ func (a *Azure) deleteKeyVaultCertificate(ctx context.Context, certName string) 
 	return nil
 }
 
-func (a *Azure) DeleteSecret(ctx context.Context, remoteRef esv1beta1.PushSecretRemoteRef) error {
-	objectType, secretName := getObjType(esv1beta1.ExternalSecretDataRemoteRef{Key: remoteRef.GetRemoteKey()})
+// DeleteSecret deletes a secret from Azure Key Vault.
+func (a *Azure) DeleteSecret(ctx context.Context, remoteRef esv1.PushSecretRemoteRef) error {
+	objectType, secretName := getObjType(esv1.ExternalSecretDataRemoteRef{Key: remoteRef.GetRemoteKey()})
 	switch objectType {
 	case defaultObjType:
+		if a.useNewSDK() {
+			return a.deleteKeyVaultSecretWithNewSDK(ctx, secretName)
+		}
 		return a.deleteKeyVaultSecret(ctx, secretName)
 	case objectTypeCert:
+		if a.useNewSDK() {
+			return a.deleteKeyVaultCertificateWithNewSDK(ctx, secretName)
+		}
 		return a.deleteKeyVaultCertificate(ctx, secretName)
 	case objectTypeKey:
+		if a.useNewSDK() {
+			return a.deleteKeyVaultKeyWithNewSDK(ctx, secretName)
+		}
 		return a.deleteKeyVaultKey(ctx, secretName)
 	default:
 		return fmt.Errorf("secret type '%v' is not supported", objectType)
 	}
 }
 
-func (a *Azure) SecretExists(ctx context.Context, remoteRef esv1beta1.PushSecretRemoteRef) (bool, error) {
-	objectType, secretName := getObjType(esv1beta1.ExternalSecretDataRemoteRef{Key: remoteRef.GetRemoteKey()})
+// SecretExists checks if a secret exists in Azure Key Vault.
+func (a *Azure) SecretExists(ctx context.Context, remoteRef esv1.PushSecretRemoteRef) (bool, error) {
+	if a.useNewSDK() {
+		return a.secretExistsWithNewSDK(ctx, remoteRef)
+	}
+
+	objectType, secretName := getObjType(esv1.ExternalSecretDataRemoteRef{Key: remoteRef.GetRemoteKey()})
 
 	var err error
 	switch objectType {
@@ -338,7 +474,7 @@ func (a *Azure) SecretExists(ctx context.Context, remoteRef esv1beta1.PushSecret
 
 	err = parseError(err)
 	if err != nil {
-		var noSecretErr esv1beta1.NoSecretError
+		var noSecretErr esv1.NoSecretError
 		if errors.As(err, &noSecretErr) {
 			return false, nil
 		}
@@ -564,7 +700,7 @@ func (a *Azure) setKeyVaultKey(ctx context.Context, secretName string, value []b
 	return nil
 }
 
-func getSecretKey(secret *corev1.Secret, data esv1beta1.PushSecretData) ([]byte, error) {
+func getSecretKey(secret *corev1.Secret, data esv1.PushSecretData) ([]byte, error) {
 	if data.GetSecretKey() != "" {
 		return secret.Data[data.GetSecretKey()], nil
 	}
@@ -574,7 +710,7 @@ func getSecretKey(secret *corev1.Secret, data esv1beta1.PushSecretData) ([]byte,
 	for k, v := range secret.Data {
 		secretStringVal[k] = string(v)
 	}
-	value, err := utils.JSONMarshal(secretStringVal)
+	value, err := esutils.JSONMarshal(secretStringVal)
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize secret content as JSON: %w", err)
 	}
@@ -582,7 +718,7 @@ func getSecretKey(secret *corev1.Secret, data esv1beta1.PushSecretData) ([]byte,
 }
 
 // PushSecret stores secrets into a Key vault instance.
-func (a *Azure) PushSecret(ctx context.Context, secret *corev1.Secret, data esv1beta1.PushSecretData) error {
+func (a *Azure) PushSecret(ctx context.Context, secret *corev1.Secret, data esv1.PushSecretData) error {
 	var (
 		value   []byte
 		err     error
@@ -615,22 +751,38 @@ func (a *Azure) PushSecret(ctx context.Context, secret *corev1.Secret, data esv1
 		tags = metadata.Spec.Tags
 	}
 
-	objectType, secretName := getObjType(esv1beta1.ExternalSecretDataRemoteRef{Key: data.GetRemoteKey()})
+	objectType, secretName := getObjType(esv1.ExternalSecretDataRemoteRef{Key: data.GetRemoteKey()})
 	switch objectType {
 	case defaultObjType:
+		if a.useNewSDK() {
+			return a.setKeyVaultSecretWithNewSDK(ctx, secretName, value, nil, tags)
+		}
 		return a.setKeyVaultSecret(ctx, secretName, value, expires, tags)
 	case objectTypeCert:
+		if a.useNewSDK() {
+			return a.setKeyVaultCertificateWithNewSDK(ctx, secretName, value, tags)
+		}
 		return a.setKeyVaultCertificate(ctx, secretName, value, tags)
 	case objectTypeKey:
+		if a.useNewSDK() {
+			return a.setKeyVaultKeyWithNewSDK(ctx, secretName, value, tags)
+		}
 		return a.setKeyVaultKey(ctx, secretName, value, tags)
 	default:
 		return fmt.Errorf("secret type %v not supported", objectType)
 	}
 }
 
-// Implements store.Client.GetAllSecrets Interface.
+// GetAllSecrets implements store.Client.GetAllSecrets Interface.
 // Retrieves a map[string][]byte with the secret names as key and the secret itself as the calue.
-func (a *Azure) GetAllSecrets(ctx context.Context, ref esv1beta1.ExternalSecretFind) (map[string][]byte, error) {
+func (a *Azure) GetAllSecrets(ctx context.Context, ref esv1.ExternalSecretFind) (map[string][]byte, error) {
+	if a.useNewSDK() {
+		return a.getAllSecretsWithNewSDK(ctx, ref)
+	}
+	return a.getAllSecretsWithLegacySDK(ctx, ref)
+}
+
+func (a *Azure) getAllSecretsWithLegacySDK(ctx context.Context, ref esv1.ExternalSecretFind) (map[string][]byte, error) {
 	basicClient := a.baseClient
 	secretsMap := make(map[string][]byte)
 	checkTags := len(ref.Tags) > 0
@@ -724,7 +876,7 @@ func getProperty(secret, property, key string) ([]byte, error) {
 func parseError(err error) error {
 	aerr := autorest.DetailedError{}
 	if errors.As(err, &aerr) && aerr.StatusCode == 404 {
-		return esv1beta1.NoSecretError{}
+		return esv1.NoSecretError{}
 	}
 	return err
 }
@@ -732,57 +884,22 @@ func parseError(err error) error {
 // GetSecret implements store.Client.GetSecret Interface.
 // Retrieves a secret/Key/Certificate/Tag with the secret name defined in ref.Name
 // The Object Type is defined as a prefix in the ref.Name , if no prefix is defined , we assume a secret is required.
-func (a *Azure) GetSecret(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) ([]byte, error) {
-	objectType, secretName := getObjType(ref)
-
-	switch objectType {
-	case defaultObjType:
-		// returns a SecretBundle with the secret value
-		// https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/services/keyvault/v7.0/keyvault#SecretBundle
-		secretResp, err := a.baseClient.GetSecret(ctx, *a.provider.VaultURL, secretName, ref.Version)
-		metrics.ObserveAPICall(constants.ProviderAzureKV, constants.CallAzureKVGetSecret, err)
-		err = parseError(err)
-		if err != nil {
-			return nil, err
-		}
-		if ref.MetadataPolicy == esv1beta1.ExternalSecretMetadataPolicyFetch {
-			return getSecretTag(secretResp.Tags, ref.Property)
-		}
-		return getProperty(*secretResp.Value, ref.Property, ref.Key)
-	case objectTypeCert:
-		// returns a CertBundle. We return CER contents of x509 certificate
-		// see: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/services/keyvault/v7.0/keyvault#CertificateBundle
-		certResp, err := a.baseClient.GetCertificate(ctx, *a.provider.VaultURL, secretName, ref.Version)
-		metrics.ObserveAPICall(constants.ProviderAzureKV, constants.CallAzureKVGetCertificate, err)
-		err = parseError(err)
-		if err != nil {
-			return nil, err
-		}
-		if ref.MetadataPolicy == esv1beta1.ExternalSecretMetadataPolicyFetch {
-			return getSecretTag(certResp.Tags, ref.Property)
-		}
-		return *certResp.Cer, nil
-	case objectTypeKey:
-		// returns a KeyBundle that contains a jwk
-		// azure kv returns only public keys
-		// see: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/services/keyvault/v7.0/keyvault#KeyBundle
-		keyResp, err := a.baseClient.GetKey(ctx, *a.provider.VaultURL, secretName, ref.Version)
-		metrics.ObserveAPICall(constants.ProviderAzureKV, constants.CallAzureKVGetKey, err)
-		err = parseError(err)
-		if err != nil {
-			return nil, err
-		}
-		if ref.MetadataPolicy == esv1beta1.ExternalSecretMetadataPolicyFetch {
-			return getSecretTag(keyResp.Tags, ref.Property)
-		}
-		return json.Marshal(keyResp.Key)
+func (a *Azure) GetSecret(ctx context.Context, ref esv1.ExternalSecretDataRemoteRef) ([]byte, error) {
+	if a.useNewSDK() {
+		return a.getSecretWithNewSDK(ctx, ref)
 	}
-
-	return nil, fmt.Errorf(errUnknownObjectType, secretName)
+	return a.getSecretWithLegacySDK(ctx, ref)
 }
 
 // returns a SecretBundle with the tags values.
-func (a *Azure) getSecretTags(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) (map[string]*string, error) {
+func (a *Azure) getSecretTags(ctx context.Context, ref esv1.ExternalSecretDataRemoteRef) (map[string]*string, error) {
+	if a.useNewSDK() {
+		return a.getSecretTagsWithNewSDK(ctx, ref)
+	}
+	return a.getSecretTagsWithLegacySDK(ctx, ref)
+}
+
+func (a *Azure) getSecretTagsWithLegacySDK(ctx context.Context, ref esv1.ExternalSecretDataRemoteRef) (map[string]*string, error) {
 	_, secretName := getObjType(ref)
 	secretResp, err := a.baseClient.GetSecret(ctx, *a.provider.VaultURL, secretName, ref.Version)
 	metrics.ObserveAPICall(constants.ProviderAzureKV, constants.CallAzureKVGetSecret, err)
@@ -810,9 +927,10 @@ func (a *Azure) getSecretTags(ctx context.Context, ref esv1beta1.ExternalSecretD
 	return secretTagsData, nil
 }
 
-// Implements store.Client.GetSecretMap Interface.
-// New version of GetSecretMap.
-func (a *Azure) GetSecretMap(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
+// GetSecretMap returns a map of secret values from Azure KeyVault by fetching the secret with
+// the given name and parsing it as a JSON object. If MetadataPolicy is set to Fetch, it will
+// return the secret tags instead.
+func (a *Azure) GetSecretMap(ctx context.Context, ref esv1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
 	objectType, secretName := getObjType(ref)
 
 	switch objectType {
@@ -822,7 +940,7 @@ func (a *Azure) GetSecretMap(ctx context.Context, ref esv1beta1.ExternalSecretDa
 			return nil, err
 		}
 
-		if ref.MetadataPolicy == esv1beta1.ExternalSecretMetadataPolicyFetch {
+		if ref.MetadataPolicy == esv1.ExternalSecretMetadataPolicyFetch {
 			tags, _ := a.getSecretTags(ctx, ref)
 			return getSecretMapProperties(tags, ref.Key, ref.Property), nil
 		}
@@ -888,7 +1006,7 @@ func (a *Azure) authorizerForWorkloadIdentity(ctx context.Context, tokenProvider
 		if clientID == "" || tenantID == "" || tokenFilePath == "" {
 			return nil, errors.New(errMissingWorkloadEnvVars)
 		}
-		token, err := os.ReadFile(tokenFilePath)
+		token, err := os.ReadFile(filepath.Clean(tokenFilePath))
 		if err != nil {
 			return nil, fmt.Errorf(errReadTokenFile, tokenFilePath, err)
 		}
@@ -899,7 +1017,7 @@ func (a *Azure) authorizerForWorkloadIdentity(ctx context.Context, tokenProvider
 		return autorest.NewBearerAuthorizer(tp), nil
 	}
 	ns := a.namespace
-	if a.store.GetKind() == esv1beta1.ClusterSecretStoreKind && a.provider.ServiceAccountRef.Namespace != nil {
+	if a.store.GetKind() == esv1.ClusterSecretStoreKind && a.provider.ServiceAccountRef.Namespace != nil {
 		ns = *a.provider.ServiceAccountRef.Namespace
 	}
 	var sa corev1.ServiceAccount
@@ -985,10 +1103,12 @@ func (a *Azure) authorizerForWorkloadIdentity(ctx context.Context, tokenProvider
 	if len(a.provider.ServiceAccountRef.Audiences) > 0 {
 		audiences = append(audiences, a.provider.ServiceAccountRef.Audiences...)
 	}
+
 	token, err := FetchSAToken(ctx, ns, a.provider.ServiceAccountRef.Name, audiences, a.kubeClient)
 	if err != nil {
 		return nil, err
 	}
+
 	tp, err := tokenProvider(ctx, token, clientID, tenantID, aadEndpoint, kvResource)
 	if err != nil {
 		return nil, err
@@ -996,6 +1116,9 @@ func (a *Azure) authorizerForWorkloadIdentity(ctx context.Context, tokenProvider
 	return autorest.NewBearerAuthorizer(tp), nil
 }
 
+// FetchSAToken retrieves a service account token from Kubernetes with the specified audiences.
+// It takes the service account namespace, name, audience list, and Kubernetes client interface.
+// Returns the token string or an error if the token creation fails.
 func FetchSAToken(ctx context.Context, ns, name string, audiences []string, kubeClient kcorev1.CoreV1Interface) (string, error) {
 	token, err := kubeClient.ServiceAccounts(ns).CreateToken(ctx, name, &authv1.TokenRequest{
 		Spec: authv1.TokenRequestSpec{
@@ -1015,11 +1138,12 @@ type tokenProvider struct {
 
 type tokenProviderFunc func(ctx context.Context, token, clientID, tenantID, aadEndpoint, kvResource string) (adal.OAuthTokenProvider, error)
 
+// NewTokenProvider creates a new Azure OAuth token provider for authentication.
 func NewTokenProvider(ctx context.Context, token, clientID, tenantID, aadEndpoint, kvResource string) (adal.OAuthTokenProvider, error) {
-	// exchange token with Azure AccessToken
-	cred := confidential.NewCredFromAssertionCallback(func(ctx context.Context, aro confidential.AssertionRequestOptions) (string, error) {
+	cred := confidential.NewCredFromAssertionCallback(func(_ context.Context, _ confidential.AssertionRequestOptions) (string, error) {
 		return token, nil
 	})
+
 	cClient, err := confidential.New(fmt.Sprintf("%s%s", aadEndpoint, tenantID), clientID, cred)
 	if err != nil {
 		return nil, err
@@ -1100,53 +1224,55 @@ func (a *Azure) getAuthorizerFromCredentials(ctx context.Context) (autorest.Auth
 			*a.provider.TenantID,
 			a.provider.EnvironmentType,
 		)
-	} else {
-		clientCertificate, err := resolvers.SecretKeyRef(
-			ctx,
-			a.crClient,
-			a.store.GetKind(),
-			a.namespace, a.provider.AuthSecretRef.ClientCertificate,
-		)
-
-		if err != nil {
-			return nil, err
-		}
-
-		return getAuthorizerForClientCertificate(
-			clientID,
-			[]byte(clientCertificate),
-			*a.provider.TenantID,
-			a.provider.EnvironmentType,
-		)
 	}
+
+	clientCertificate, err := resolvers.SecretKeyRef(
+		ctx,
+		a.crClient,
+		a.store.GetKind(),
+		a.namespace, a.provider.AuthSecretRef.ClientCertificate,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return getAuthorizerForClientCertificate(
+		clientID,
+		[]byte(clientCertificate),
+		*a.provider.TenantID,
+		a.provider.EnvironmentType,
+	)
 }
 
-func getAuthorizerForClientSecret(clientID, clientSecret, tenantID string, environmentType esv1beta1.AzureEnvironmentType) (autorest.Authorizer, error) {
+func getAuthorizerForClientSecret(clientID, clientSecret, tenantID string, environmentType esv1.AzureEnvironmentType) (autorest.Authorizer, error) {
 	clientCredentialsConfig := kvauth.NewClientCredentialsConfig(clientID, clientSecret, tenantID)
 	clientCredentialsConfig.Resource = kvResourceForProviderConfig(environmentType)
 	clientCredentialsConfig.AADEndpoint = AadEndpointForType(environmentType)
 	return clientCredentialsConfig.Authorizer()
 }
 
-func getAuthorizerForClientCertificate(clientID string, certificateBytes []byte, tenantID string, environmentType esv1beta1.AzureEnvironmentType) (autorest.Authorizer, error) {
+func getAuthorizerForClientCertificate(clientID string, certificateBytes []byte, tenantID string, environmentType esv1.AzureEnvironmentType) (autorest.Authorizer, error) {
 	clientCertificateConfig := NewClientInMemoryCertificateConfig(clientID, certificateBytes, tenantID)
 	clientCertificateConfig.Resource = kvResourceForProviderConfig(environmentType)
 	clientCertificateConfig.AADEndpoint = AadEndpointForType(environmentType)
 	return clientCertificateConfig.Authorizer()
 }
 
+// Close closes the Azure Key Vault provider.
 func (a *Azure) Close(_ context.Context) error {
 	return nil
 }
 
-func (a *Azure) Validate() (esv1beta1.ValidationResult, error) {
-	if a.store.GetKind() == esv1beta1.ClusterSecretStoreKind && isReferentSpec(a.provider) {
-		return esv1beta1.ValidationResultUnknown, nil
+// Validate validates the Azure Key Vault provider configuration.
+func (a *Azure) Validate() (esv1.ValidationResult, error) {
+	if a.store.GetKind() == esv1.ClusterSecretStoreKind && isReferentSpec(a.provider) {
+		return esv1.ValidationResultUnknown, nil
 	}
-	return esv1beta1.ValidationResultReady, nil
+	return esv1.ValidationResultReady, nil
 }
 
-func isReferentSpec(prov *esv1beta1.AzureKVProvider) bool {
+func isReferentSpec(prov *esv1.AzureKVProvider) bool {
 	if prov.AuthSecretRef != nil &&
 		((prov.AuthSecretRef.ClientID != nil &&
 			prov.AuthSecretRef.ClientID.Namespace == nil) ||
@@ -1161,54 +1287,68 @@ func isReferentSpec(prov *esv1beta1.AzureKVProvider) bool {
 	return false
 }
 
-func AadEndpointForType(t esv1beta1.AzureEnvironmentType) string {
+// AadEndpointForType returns the Azure Active Directory endpoint for the specified Azure environment type.
+func AadEndpointForType(t esv1.AzureEnvironmentType) string {
 	switch t {
-	case esv1beta1.AzureEnvironmentPublicCloud:
+	case esv1.AzureEnvironmentPublicCloud:
 		return azure.PublicCloud.ActiveDirectoryEndpoint
-	case esv1beta1.AzureEnvironmentChinaCloud:
+	case esv1.AzureEnvironmentChinaCloud:
 		return azure.ChinaCloud.ActiveDirectoryEndpoint
-	case esv1beta1.AzureEnvironmentUSGovernmentCloud:
+	case esv1.AzureEnvironmentUSGovernmentCloud:
 		return azure.USGovernmentCloud.ActiveDirectoryEndpoint
-	case esv1beta1.AzureEnvironmentGermanCloud:
+	case esv1.AzureEnvironmentGermanCloud:
 		return azure.GermanCloud.ActiveDirectoryEndpoint
+	case esv1.AzureEnvironmentAzureStackCloud:
+		// Azure Stack Cloud requires custom configuration and new SDK
+		// Return empty string to indicate it's not supported in old SDK
+		return ""
 	default:
 		return azure.PublicCloud.ActiveDirectoryEndpoint
 	}
 }
 
-func ServiceManagementEndpointForType(t esv1beta1.AzureEnvironmentType) string {
+// ServiceManagementEndpointForType returns the service management endpoint for the specified Azure environment type.
+func ServiceManagementEndpointForType(t esv1.AzureEnvironmentType) string {
 	switch t {
-	case esv1beta1.AzureEnvironmentPublicCloud:
+	case esv1.AzureEnvironmentPublicCloud:
 		return azure.PublicCloud.ServiceManagementEndpoint
-	case esv1beta1.AzureEnvironmentChinaCloud:
+	case esv1.AzureEnvironmentChinaCloud:
 		return azure.ChinaCloud.ServiceManagementEndpoint
-	case esv1beta1.AzureEnvironmentUSGovernmentCloud:
+	case esv1.AzureEnvironmentUSGovernmentCloud:
 		return azure.USGovernmentCloud.ServiceManagementEndpoint
-	case esv1beta1.AzureEnvironmentGermanCloud:
+	case esv1.AzureEnvironmentGermanCloud:
 		return azure.GermanCloud.ServiceManagementEndpoint
+	case esv1.AzureEnvironmentAzureStackCloud:
+		// Azure Stack Cloud requires custom configuration and new SDK
+		// Return empty string to indicate it's not supported in old SDK
+		return ""
 	default:
 		return azure.PublicCloud.ServiceManagementEndpoint
 	}
 }
 
-func kvResourceForProviderConfig(t esv1beta1.AzureEnvironmentType) string {
+func kvResourceForProviderConfig(t esv1.AzureEnvironmentType) string {
 	var res string
 	switch t {
-	case esv1beta1.AzureEnvironmentPublicCloud:
+	case esv1.AzureEnvironmentPublicCloud:
 		res = azure.PublicCloud.KeyVaultEndpoint
-	case esv1beta1.AzureEnvironmentChinaCloud:
+	case esv1.AzureEnvironmentChinaCloud:
 		res = azure.ChinaCloud.KeyVaultEndpoint
-	case esv1beta1.AzureEnvironmentUSGovernmentCloud:
+	case esv1.AzureEnvironmentUSGovernmentCloud:
 		res = azure.USGovernmentCloud.KeyVaultEndpoint
-	case esv1beta1.AzureEnvironmentGermanCloud:
+	case esv1.AzureEnvironmentGermanCloud:
 		res = azure.GermanCloud.KeyVaultEndpoint
+	case esv1.AzureEnvironmentAzureStackCloud:
+		// Azure Stack Cloud requires custom configuration and new SDK
+		// Return empty string to indicate it's not supported in old SDK
+		res = ""
 	default:
 		res = azure.PublicCloud.KeyVaultEndpoint
 	}
 	return strings.TrimSuffix(res, "/")
 }
 
-func getObjType(ref esv1beta1.ExternalSecretDataRemoteRef) (string, string) {
+func getObjType(ref esv1.ExternalSecretDataRemoteRef) (string, string) {
 	objectType := defaultObjType
 
 	secretName := ref.Key
@@ -1222,7 +1362,7 @@ func getObjType(ref esv1beta1.ExternalSecretDataRemoteRef) (string, string) {
 	return objectType, secretName
 }
 
-func isValidSecret(checkTags, checkName bool, ref esv1beta1.ExternalSecretFind, secret keyvault.SecretItem) (bool, string) {
+func isValidSecret(checkTags, checkName bool, ref esv1.ExternalSecretFind, secret keyvault.SecretItem) (bool, string) {
 	if secret.ID == nil || !*secret.Attributes.Enabled {
 		return false, ""
 	}
@@ -1239,12 +1379,12 @@ func isValidSecret(checkTags, checkName bool, ref esv1beta1.ExternalSecretFind, 
 	return true, secretName
 }
 
-func okByName(ref esv1beta1.ExternalSecretFind, secretName string) bool {
+func okByName(ref esv1.ExternalSecretFind, secretName string) bool {
 	matches, _ := regexp.MatchString(ref.Name.RegExp, secretName)
 	return matches
 }
 
-func okByTags(ref esv1beta1.ExternalSecretFind, secret keyvault.SecretItem) bool {
+func okByTags(ref esv1.ExternalSecretFind, secret keyvault.SecretItem) bool {
 	tagsFound := true
 	for k, v := range ref.Tags {
 		if val, ok := secret.Tags[k]; !ok || *val != v {
@@ -1253,4 +1393,59 @@ func okByTags(ref esv1beta1.ExternalSecretFind, secret keyvault.SecretItem) bool
 		}
 	}
 	return tagsFound
+}
+
+// GetSecret implementation using legacy go-autorest SDK.
+func (a *Azure) getSecretWithLegacySDK(ctx context.Context, ref esv1.ExternalSecretDataRemoteRef) ([]byte, error) {
+	objectType, secretName := getObjType(ref)
+
+	switch objectType {
+	case defaultObjType:
+		// returns a SecretBundle with the secret value
+		// https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/services/keyvault/v7.0/keyvault#SecretBundle
+		secretResp, err := a.baseClient.GetSecret(ctx, *a.provider.VaultURL, secretName, ref.Version)
+		metrics.ObserveAPICall(constants.ProviderAzureKV, constants.CallAzureKVGetSecret, err)
+		err = parseError(err)
+		if err != nil {
+			return nil, err
+		}
+		if ref.MetadataPolicy == esv1.ExternalSecretMetadataPolicyFetch {
+			return getSecretTag(secretResp.Tags, ref.Property)
+		}
+		return getProperty(*secretResp.Value, ref.Property, ref.Key)
+
+	case objectTypeCert:
+		// returns a CertBundle. We return CER contents of x509 certificate
+		// see: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/services/keyvault/v7.0/keyvault#CertificateBundle
+		certResp, err := a.baseClient.GetCertificate(ctx, *a.provider.VaultURL, secretName, ref.Version)
+		metrics.ObserveAPICall(constants.ProviderAzureKV, constants.CallAzureKVGetCertificate, err)
+		err = parseError(err)
+		if err != nil {
+			return nil, err
+		}
+		if ref.MetadataPolicy == esv1.ExternalSecretMetadataPolicyFetch {
+			return getSecretTag(certResp.Tags, ref.Property)
+		}
+		return *certResp.Cer, nil
+
+	case objectTypeKey:
+		// returns a KeyBundle
+		// https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/services/keyvault/v7.0/keyvault#KeyBundle
+		keyResp, err := a.baseClient.GetKey(ctx, *a.provider.VaultURL, secretName, ref.Version)
+		metrics.ObserveAPICall(constants.ProviderAzureKV, constants.CallAzureKVGetKey, err)
+		err = parseError(err)
+		if err != nil {
+			return nil, err
+		}
+		if ref.MetadataPolicy == esv1.ExternalSecretMetadataPolicyFetch {
+			return getSecretTag(keyResp.Tags, ref.Property)
+		}
+		keyBytes, err := json.Marshal(keyResp.Key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal key: %w", err)
+		}
+		return getProperty(string(keyBytes), ref.Property, ref.Key)
+	}
+
+	return nil, fmt.Errorf(errUnknownObjectType, secretName)
 }

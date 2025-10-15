@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package akeyless provides integration with Akeyless Vault for secrets management.
 package akeyless
 
 import (
@@ -29,7 +32,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/akeylesslabs/akeyless-go/v3"
+	"github.com/akeylesslabs/akeyless-go/v4"
 	"github.com/tidwall/gjson"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -38,22 +41,23 @@ import (
 	ctrlcfg "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
 	"github.com/external-secrets/external-secrets/pkg/find"
-	"github.com/external-secrets/external-secrets/pkg/utils"
 )
 
-type AkeylessCtx string
+// Ctx is a type used for context keys in Akeyless provider implementations.
+type Ctx string
 
 const (
-	defaultAPIUrl                   = "https://api.akeyless.io"
-	extSecretManagedTag             = "k8s-external-secrets"
-	aKeylessToken       AkeylessCtx = "AKEYLESS_TOKEN"
+	defaultAPIUrl           = "https://api.akeyless.io"
+	extSecretManagedTag     = "k8s-external-secrets"
+	aKeylessToken       Ctx = "AKEYLESS_TOKEN"
 )
 
 // https://github.com/external-secrets/external-secrets/issues/644
-var _ esv1beta1.SecretsClient = &Akeyless{}
-var _ esv1beta1.Provider = &Provider{}
+var _ esv1.SecretsClient = &Akeyless{}
+var _ esv1.Provider = &Provider{}
 
 // Provider satisfies the provider interface.
 type Provider struct{}
@@ -61,7 +65,7 @@ type Provider struct{}
 // akeylessBase satisfies the provider.SecretsClient interface.
 type akeylessBase struct {
 	kube      client.Client
-	store     esv1beta1.GenericStore
+	store     esv1.GenericStore
 	storeKind string
 	corev1    typedcorev1.CoreV1Interface
 	namespace string
@@ -70,11 +74,13 @@ type akeylessBase struct {
 	RestAPI          *akeyless.V2ApiService
 }
 
+// Akeyless represents a client for the Akeyless Vault service.
 type Akeyless struct {
 	Client akeylessVaultInterface
 	url    string
 }
 
+// Item represents an item in the Akeyless Vault.
 type Item struct {
 	ItemName    string `json:"item_name"`
 	ItemType    string `json:"item_type"`
@@ -92,18 +98,18 @@ type akeylessVaultInterface interface {
 }
 
 func init() {
-	esv1beta1.Register(&Provider{}, &esv1beta1.SecretStoreProvider{
-		Akeyless: &esv1beta1.AkeylessProvider{},
-	})
+	esv1.Register(&Provider{}, &esv1.SecretStoreProvider{
+		Akeyless: &esv1.AkeylessProvider{},
+	}, esv1.MaintenanceStatusMaintained)
 }
 
 // Capabilities return the provider supported capabilities (ReadOnly, WriteOnly, ReadWrite).
-func (p *Provider) Capabilities() esv1beta1.SecretStoreCapabilities {
-	return esv1beta1.SecretStoreReadOnly
+func (p *Provider) Capabilities() esv1.SecretStoreCapabilities {
+	return esv1.SecretStoreReadOnly
 }
 
 // NewClient constructs a new secrets client based on the provided store.
-func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, kube client.Client, namespace string) (esv1beta1.SecretsClient, error) {
+func (p *Provider) NewClient(ctx context.Context, store esv1.GenericStore, kube client.Client, namespace string) (esv1.SecretsClient, error) {
 	// controller-runtime/client does not support TokenRequest or other subresource APIs
 	// so we need to construct our own client and use it to fetch tokens
 	// (for Kubernetes service account token auth)
@@ -119,30 +125,31 @@ func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, 
 	return newClient(ctx, store, kube, clientset.CoreV1(), namespace)
 }
 
-func (p *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnings, error) {
+// ValidateStore validates the configuration of the Akeyless provider in the store.
+func (p *Provider) ValidateStore(store esv1.GenericStore) (admission.Warnings, error) {
 	storeSpec := store.GetSpec()
 	akeylessSpec := storeSpec.Provider.Akeyless
 
 	akeylessGWApiURL := akeylessSpec.AkeylessGWApiURL
 
 	if akeylessGWApiURL != nil && *akeylessGWApiURL != "" {
-		url, err := url.Parse(*akeylessGWApiURL)
+		parsedURL, err := url.Parse(*akeylessGWApiURL)
 		if err != nil {
 			return nil, errors.New(errInvalidAkeylessURL)
 		}
 
-		if url.Host == "" {
+		if parsedURL.Host == "" {
 			return nil, errors.New(errInvalidAkeylessURL)
 		}
 	}
 	if akeylessSpec.Auth.KubernetesAuth != nil {
 		if akeylessSpec.Auth.KubernetesAuth.ServiceAccountRef != nil {
-			if err := utils.ValidateReferentServiceAccountSelector(store, *akeylessSpec.Auth.KubernetesAuth.ServiceAccountRef); err != nil {
+			if err := esutils.ValidateReferentServiceAccountSelector(store, *akeylessSpec.Auth.KubernetesAuth.ServiceAccountRef); err != nil {
 				return nil, fmt.Errorf(errInvalidKubeSA, err)
 			}
 		}
 		if akeylessSpec.Auth.KubernetesAuth.SecretRef != nil {
-			err := utils.ValidateSecretSelector(store, *akeylessSpec.Auth.KubernetesAuth.SecretRef)
+			err := esutils.ValidateSecretSelector(store, *akeylessSpec.Auth.KubernetesAuth.SecretRef)
 			if err != nil {
 				return nil, err
 			}
@@ -159,7 +166,7 @@ func (p *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnin
 	}
 
 	accessID := akeylessSpec.Auth.SecretRef.AccessID
-	err := utils.ValidateSecretSelector(store, accessID)
+	err := esutils.ValidateSecretSelector(store, accessID)
 	if err != nil {
 		return nil, err
 	}
@@ -173,13 +180,13 @@ func (p *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnin
 	}
 
 	accessType := akeylessSpec.Auth.SecretRef.AccessType
-	err = utils.ValidateSecretSelector(store, accessType)
+	err = esutils.ValidateSecretSelector(store, accessType)
 	if err != nil {
 		return nil, err
 	}
 
 	accessTypeParam := akeylessSpec.Auth.SecretRef.AccessTypeParam
-	err = utils.ValidateSecretSelector(store, accessTypeParam)
+	err = esutils.ValidateSecretSelector(store, accessTypeParam)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +194,7 @@ func (p *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnin
 	return nil, nil
 }
 
-func newClient(ctx context.Context, store esv1beta1.GenericStore, kube client.Client, corev1 typedcorev1.CoreV1Interface, namespace string) (esv1beta1.SecretsClient, error) {
+func newClient(ctx context.Context, store esv1.GenericStore, kube client.Client, corev1 typedcorev1.CoreV1Interface, namespace string) (esv1.SecretsClient, error) {
 	akl := &akeylessBase{
 		kube:      kube,
 		store:     store,
@@ -239,25 +246,27 @@ func (a *Akeyless) contextWithToken(ctx context.Context) (context.Context, error
 	return context.WithValue(ctx, aKeylessToken, token), nil
 }
 
+// Close closes the Akeyless client connection.
 func (a *Akeyless) Close(_ context.Context) error {
 	return nil
 }
 
-func (a *Akeyless) Validate() (esv1beta1.ValidationResult, error) {
+// Validate validates the Akeyless connection by testing network connectivity.
+func (a *Akeyless) Validate() (esv1.ValidationResult, error) {
 	timeout := 15 * time.Second
-	url := a.url
+	serviceURL := a.url
 
-	if err := utils.NetworkValidate(url, timeout); err != nil {
-		return esv1beta1.ValidationResultError, err
+	if err := esutils.NetworkValidate(serviceURL, timeout); err != nil {
+		return esv1.ValidationResultError, err
 	}
 
-	return esv1beta1.ValidationResultReady, nil
+	return esv1.ValidationResultReady, nil
 }
 
+// GetSecret retrieves a secret with the secret name defined in ref.Name.
 // Implements store.Client.GetSecret Interface.
-// Retrieves a secret with the secret name defined in ref.Name.
-func (a *Akeyless) GetSecret(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) ([]byte, error) {
-	if utils.IsNil(a.Client) {
+func (a *Akeyless) GetSecret(ctx context.Context, ref esv1.ExternalSecretDataRemoteRef) ([]byte, error) {
+	if esutils.IsNil(a.Client) {
 		return nil, errors.New(errUninitalizedAkeylessProvider)
 	}
 	ctx, err := a.contextWithToken(ctx)
@@ -300,8 +309,8 @@ func (a *Akeyless) GetSecret(ctx context.Context, ref esv1beta1.ExternalSecretDa
 
 // GetAllSecrets Implements store.Client.GetAllSecrets Interface.
 // Retrieves all secrets with defined in ref.Name or tags.
-func (a *Akeyless) GetAllSecrets(ctx context.Context, ref esv1beta1.ExternalSecretFind) (map[string][]byte, error) {
-	if utils.IsNil(a.Client) {
+func (a *Akeyless) GetAllSecrets(ctx context.Context, ref esv1.ExternalSecretFind) (map[string][]byte, error) {
+	if esutils.IsNil(a.Client) {
 		return nil, errors.New(errUninitalizedAkeylessProvider)
 	}
 	ctx, err := a.contextWithToken(ctx)
@@ -357,7 +366,7 @@ func (a *Akeyless) getSecrets(ctx context.Context, searchPath string, tags map[s
 	return secrets, nil
 }
 
-func (a *Akeyless) findSecretsFromName(ctx context.Context, searchPath string, ref esv1beta1.FindName) (map[string][]byte, error) {
+func (a *Akeyless) findSecretsFromName(ctx context.Context, searchPath string, ref esv1.FindName) (map[string][]byte, error) {
 	potentialSecrets, err := a.Client.ListSecrets(ctx, searchPath, "")
 	if err != nil {
 		return nil, err
@@ -388,8 +397,8 @@ func (a *Akeyless) findSecretsFromName(ctx context.Context, searchPath string, r
 
 // GetSecretMap implements store.Client.GetSecretMap Interface.
 // New version of GetSecretMap.
-func (a *Akeyless) GetSecretMap(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
-	if utils.IsNil(a.Client) {
+func (a *Akeyless) GetSecretMap(ctx context.Context, ref esv1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
+	if esutils.IsNil(a.Client) {
 		return nil, errors.New(errUninitalizedAkeylessProvider)
 	}
 	val, err := a.GetSecret(ctx, ref)
@@ -411,11 +420,12 @@ func (a *Akeyless) GetSecretMap(ctx context.Context, ref esv1beta1.ExternalSecre
 	return secretData, nil
 }
 
-func (a *Akeyless) SecretExists(ctx context.Context, ref esv1beta1.PushSecretRemoteRef) (bool, error) {
-	if utils.IsNil(a.Client) {
+// SecretExists checks if a secret exists in Akeyless Vault at the specified remote reference.
+func (a *Akeyless) SecretExists(ctx context.Context, ref esv1.PushSecretRemoteRef) (bool, error) {
+	if esutils.IsNil(a.Client) {
 		return false, errors.New(errUninitalizedAkeylessProvider)
 	}
-	secret, err := a.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: ref.GetRemoteKey()})
+	secret, err := a.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: ref.GetRemoteKey()})
 	if errors.Is(err, ErrItemNotExists) {
 		return false, nil
 	}
@@ -434,7 +444,7 @@ func (a *Akeyless) SecretExists(ctx context.Context, ref esv1beta1.PushSecretRem
 	return ok, nil
 }
 
-func initMapIfNotExist(psd esv1beta1.PushSecretData, secretMapSize int) map[string]any {
+func initMapIfNotExist(psd esv1.PushSecretData, secretMapSize int) map[string]any {
 	mapSize := 1
 	if psd.GetProperty() == "" {
 		mapSize = secretMapSize
@@ -442,15 +452,16 @@ func initMapIfNotExist(psd esv1beta1.PushSecretData, secretMapSize int) map[stri
 	return make(map[string]any, mapSize)
 }
 
-func (a *Akeyless) PushSecret(ctx context.Context, secret *corev1.Secret, psd esv1beta1.PushSecretData) error {
-	if utils.IsNil(a.Client) {
+// PushSecret pushes a Kubernetes secret to Akeyless Vault using the provided data.
+func (a *Akeyless) PushSecret(ctx context.Context, secret *corev1.Secret, psd esv1.PushSecretData) error {
+	if esutils.IsNil(a.Client) {
 		return errors.New(errUninitalizedAkeylessProvider)
 	}
 	ctx, err := a.contextWithToken(ctx)
 	if err != nil {
 		return err
 	}
-	secretRemote, err := a.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: psd.GetRemoteKey()})
+	secretRemote, err := a.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: psd.GetRemoteKey()})
 	isNotExists := errors.Is(err, ErrItemNotExists)
 	if err != nil && !isNotExists {
 		return err
@@ -485,8 +496,9 @@ func (a *Akeyless) PushSecret(ctx context.Context, secret *corev1.Secret, psd es
 	return a.Client.UpdateSecret(ctx, psd.GetRemoteKey(), string(dataByte))
 }
 
-func (a *Akeyless) DeleteSecret(ctx context.Context, psr esv1beta1.PushSecretRemoteRef) error {
-	if utils.IsNil(a.Client) {
+// DeleteSecret deletes a secret from Akeyless Vault at the specified remote reference.
+func (a *Akeyless) DeleteSecret(ctx context.Context, psr esv1.PushSecretRemoteRef) error {
+	if esutils.IsNil(a.Client) {
 		return errors.New(errUninitalizedAkeylessProvider)
 	}
 	ctx, err := a.contextWithToken(ctx)
@@ -504,7 +516,7 @@ func (a *Akeyless) DeleteSecret(ctx context.Context, psr esv1beta1.PushSecretRem
 		err = a.Client.DeleteSecret(ctx, psr.GetRemoteKey())
 		return err
 	}
-	secret, err := a.GetSecret(ctx, esv1beta1.ExternalSecretDataRemoteRef{Key: psr.GetRemoteKey()})
+	secret, err := a.GetSecret(ctx, esv1.ExternalSecretDataRemoteRef{Key: psr.GetRemoteKey()})
 	if err != nil {
 		return err
 	}
@@ -526,13 +538,13 @@ func (a *Akeyless) DeleteSecret(ctx context.Context, psr esv1beta1.PushSecretRem
 	return err
 }
 
-func (a *akeylessBase) getAkeylessHTTPClient(ctx context.Context, provider *esv1beta1.AkeylessProvider) (*http.Client, error) {
+func (a *akeylessBase) getAkeylessHTTPClient(ctx context.Context, provider *esv1.AkeylessProvider) (*http.Client, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	if len(provider.CABundle) == 0 && provider.CAProvider == nil {
 		return client, nil
 	}
 
-	cert, err := utils.FetchCACertFromSource(ctx, utils.CreateCertOpts{
+	cert, err := esutils.FetchCACertFromSource(ctx, esutils.CreateCertOpts{
 		StoreKind:  a.storeKind,
 		Client:     a.kube,
 		Namespace:  a.namespace,

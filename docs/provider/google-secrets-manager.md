@@ -48,15 +48,15 @@ For example, the following CLI call grants the Kubernetes service account access
 ```shell
 gcloud secrets add-iam-policy-binding demo-secret \
   --project=$PROJECT_ID \
-  --role="roles/secretmanager.secretAccessor"
+  --role="roles/secretmanager.secretAccessor" \
   --member="principal://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${PROJECT_ID}.svc.id.goog/subject/ns/${K8S_NAMESPACE}/sa/${K8S_SA}"
 ```
 
 You can also grant the Kubernetes service account access to _all_ secrets in a GCP project:
 
 ```shell
-gcloud project add-iam-policy-binding $PROJECT_ID \
-  --role="roles/secretmanager.secretAccessor"
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --role="roles/secretmanager.secretAccessor" \
   --member="principal://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${PROJECT_ID}.svc.id.goog/subject/ns/${K8S_NAMESPACE}/sa/${K8S_SA}"
 ```
 
@@ -67,27 +67,19 @@ _For more information about WIF and Secret Manager permissions, refer to:_
 * _[Authenticate to Google Cloud APIs from GKE workloads](https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity) in the GKE documentation._
 * _[Access control with IAM](https://cloud.google.com/secret-manager/docs/access-control) in the Secret Manager documentation._
 
-To create a `SecretStore` that references a service account, in addition to the four values above, you need to know:
-
-* `CLUSTER_NAME`: The name of the GKE cluster.
-* `CLUSTER_LOCATION`: The location of the GKE cluster. For a regional cluster, this is the region. For a zonal cluster, this is the zone.
-
-You can optionally verify these values through the CLI:
-
-```shell
-gcloud container clusters describe $CLUSTER_NAME \
-  --project=$PROJECT_ID --location=$CLUSTER_LOCATION
-```
-
-If the three values are correct, this returns information about your cluster.
-
-Finally, create the `SecretStore`:
+Next, create a `SecretStore` that references the `demo-secrets-sa` Kubernetes service account:
 
 ```yaml
 {% include 'gcpsm-wif-iam-secret-store.yaml' %}
 ```
 
 In the case of a `ClusterSecretStore`, you additionally have to define the service account's `namespace` under `auth.workloadIdentity.serviceAccountRef`.
+
+Finally, you can create an `ExternalSecret` for the `demo-secret` that references this `SecretStore`:
+
+```yaml
+{% include 'gcpsm-wif-externalsecret.yaml' %}
+```
 
 #### Linking a Kubernetes service account to a GCP service account
 
@@ -158,21 +150,7 @@ _For more information about WIF and Secret Manager permissions, refer to:_
 * _[Authenticate to Google Cloud APIs from GKE workloads](https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity) in the GKE documentation._
 * _[Access control with IAM](https://cloud.google.com/secret-manager/docs/access-control) in the Secret Manager documentation._
 
-To create a `SecretStore` that references the Kubernetes service account, you need to know:
-
-* `CLUSTER_NAME`: The name of the GKE cluster.
-* `CLUSTER_LOCATION`: The location of the GKE cluster. For a regional cluster, this is the region. For a zonal cluster, this is the zone.
-
-You can optionally verify the information through the CLI:
-
-```shell
-gcloud container clusters describe $CLUSTER_NAME \
-  --project=$PROJECT_ID --location=$CLUSTER_LOCATION
-```
-
-If the three values are correct, this returns information about your cluster.
-
-Finally, create the `SecretStore`:
+Next, create a `SecretStore` that references the `demo-secrets-sa` Kubernetes service account:
 
 ```yaml
 {% include 'gcpsm-wif-sa-secret-store.yaml' %}
@@ -180,9 +158,15 @@ Finally, create the `SecretStore`:
 
 In the case of a `ClusterSecretStore`, you additionally have to define the service account's `namespace` under `auth.workloadIdentity.serviceAccountRef`.
 
+Finally, you can create an `ExternalSecret` for the `demo-secret` that references this `SecretStore`:
+
+```yaml
+{% include 'gcpsm-wif-externalsecret.yaml' %}
+```
+
 #### Authorizing the Core Controller Pod
 
-Instead of managing authentication at the `SecretStore` and `ClusterSecretStore` level, you can give the [Core Controller](/api/components/) Pod's service account access to Secret Manager secrets using one of the two WIF approaches described in the previous sections.
+Instead of managing authentication at the `SecretStore` and `ClusterSecretStore` level, you can give the [Core Controller](../api/components.md) Pod's service account access to Secret Manager secrets using one of the two WIF approaches described in the previous sections.
 
 To demonstrate this approach, we'll assume you installed ESO using Helm into the `external-secrets` namespace, with `external-secrets` as the release name:
 
@@ -216,9 +200,35 @@ Once the Core Controller Pod can access the Secret Manager secret(s) through WIF
 {% include 'gcpsm-wif-core-controller-secret-store.yaml' %}
 ```
 
+#### Explicitly specifying the GKE cluster's name and location
+
+When creating a `SecretStore` or `ClusterSecretStore` that uses WIF, the GKE cluster's project ID, name, and location are automatically determined through the [GCP metadata server](https://cloud.google.com/compute/docs/metadata/overview).
+Alternatively, you can explicitly specify some or all of these values.
+
+For a fully specified configuration, you'll need to know the following three values:
+
+* `CLUSTER_PROJECT_ID`: The ID of GCP project that contains the GKE cluster.
+* `CLUSTER_NAME`: The name of the GKE cluster.
+* `CLUSTER_LOCATION`: The location of the GKE cluster. For a regional cluster, this is the region. For a zonal cluster, this is the zone.
+
+You can optionally verify these values through the CLI:
+
+```shell
+gcloud container clusters describe $CLUSTER_NAME \
+  --project=$CLUSTER_PROJECT_ID --location=$CLUSTER_LOCATION
+```
+
+If the three values are correct, this returns information about your GKE cluster.
+
+Then, you can create a `SecretStore` or `ClusterSecretStore` that explicitly specifies the cluster's project ID, name, and location:
+
+```yaml
+{% include 'gcpsm-wif-sa-secret-store-with-explicit-name-and-location.yaml' %}
+```
+
 ### Authenticating with a GCP service account
 
-The `SecretStore` (or `ClusterSecretStore`) use a long-lived, static [GCP service account key](https://cloud.google.com/iam/docs/service-account-creds#key-types) to authenticate with GCP.
+The `SecretStore` (or `ClusterSecretStore`) uses a long-lived, static [GCP service account key](https://cloud.google.com/iam/docs/service-account-creds#key-types) to authenticate with GCP.
 This approach can be used on any Kubernetes cluster.
 
 To demonstrate this approach, we'll create a `SecretStore` in the `demo` namespace.
@@ -291,18 +301,25 @@ spec:
 
 ### Location and Replication
 
-By default, secrets are automatically replicated across multiple regions. You can specify a single location for your secrets by setting the `location` field:
+By default, secrets are automatically replicated across multiple regions. You can specify a single location for your secrets by setting the `replicationLocation` field:
 
 ```yaml
-apiVersion: external-secrets.io/v1beta1
-kind: SecretStore
+apiVersion: external-secrets.io/v1alpha1
+kind: PushSecret
 metadata:
-  name: gcp-secret-store
+  name: pushsecret-example
 spec:
-  provider:
-    gcpsm:
-      projectID: my-project
-      location: us-east1  # Specify a single location
+  # ... other fields ...
+  data:
+    - match:
+        secretKey: mykey
+        remoteRef:
+          remoteKey: my-secret
+      metadata:
+        apiVersion: kubernetes.external-secrets.io/v1alpha1
+        kind: PushSecretMetadata`
+        spec:
+          replicationLocation: "us-east1"
 ```
 
 ### Customer-Managed Encryption Keys (CMEK)
@@ -335,7 +352,7 @@ spec:
 Note: When using CMEK, you must specify a location in the SecretStore as customer-managed encryption keys are region-specific.
 
 ```yaml
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: SecretStore
 metadata:
   name: gcp-secret-store
@@ -346,50 +363,51 @@ spec:
       location: us-east1  # Required when using CMEK
 ```
 
-## Migration Guide: PushSecret Metadata Format (v0.11.x to v0.12.0)
+## Regional Secrets
+GCP Secret Manager Regional Secrets are available to be used with both ExternalSecrets and PushSecrets.
 
-In version 0.12.0, the metadata format for PushSecrets has been standardized to use a structured format. If you're upgrading from v0.11.x, you'll need to update your PushSecret specifications.
+In order to achieve so, add a `location` to your SecretStore definition:
 
-### Old Format (v0.11.x)
 ```yaml
-apiVersion: external-secrets.io/v1alpha1
-kind: PushSecret
+apiVersion: external-secrets.io/v1beta1
+kind: SecretStore
+metadata:
+  name: gcp-secret-store
 spec:
-  data:
-    - match:
-        secretKey: mykey
-        remoteRef:
-          remoteKey: my-secret
-      metadata:
-        annotations:
-          key1: "value1"
-        labels:
-          key2: "value2"
-        topics:
-          - "topic1"
-          - "topic2"
+  provider:
+    gcpsm:
+      projectID: my-project
+      location: us-east1 # uses regional secrets on us-east1
 ```
 
-### New Format (v0.12.0+)
+## Secret Version Management
+
+### Secret Version Selection Policy
+
+The Google Secret Manager provider includes a `secretVersionSelectionPolicy` field that controls how the provider handles secret version selection when the default "latest" version is unavailable.
+
+By default, when you request a secret without specifying a version, the provider attempts to fetch the "latest" version. The `secretVersionSelectionPolicy` determines what happens if that version is in a DESTROYED or DISABLED state.
+
+#### Available Policies
+
+- **`LatestOrFail`** (default): The provider always uses "latest", or fails if that version is disabled/destroyed.
+- **`LatestOrFetch`**: The provider falls back to fetching the latest enabled version if the "latest" version is DESTROYED or DISABLED.
+
+#### Configuration Example
+
 ```yaml
-apiVersion: external-secrets.io/v1alpha1
-kind: PushSecret
+apiVersion: external-secrets.io/v1beta1
+kind: SecretStore
+metadata:
+  name: gcp-secret-store
 spec:
-  data:
-    - match:
-        secretKey: mykey
-        remoteRef:
-          remoteKey: my-secret
-      metadata:
-        apiVersion: kubernetes.external-secrets.io/v1alpha1
-        kind: PushSecretMetadata
-        spec:
-          annotations:
-            key1: "value1"
-          labels:
-            key2: "value2"
-          topics:
-            - "topic1"
-            - "topic2"
-          cmekKeyName: "projects/my-project/locations/us-east1/keyRings/my-keyring/cryptoKeys/my-key"  # Optional: for CMEK
+  provider:
+    gcpsm:
+      projectID: my-project
+      location: us-east1
+      secretVersionSelectionPolicy: LatestOrFetch  # or LatestOrFail (default)
+```
+
+**Note**: When using `secretVersionSelectionPolicy: LatestOrFetch`, the service account requires additional permissions to list secret versions. You'll need to grant the `roles/secretmanager.viewer` role (which includes `secretmanager.versions.list`) or the specific `secretmanager.versions.list` permission in addition to the standard `secretmanager.secretAccessor` role.
+
 ```

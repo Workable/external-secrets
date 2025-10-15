@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,7 +22,7 @@ import (
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 )
 
-// AkeylessProvider Configures an store to sync secrets using Akeyless KV.
+// WebHookProvider Configures an store to sync secrets from simple web apis.
 type WebhookProvider struct {
 	// Webhook Method
 	// +optional, default GET
@@ -32,6 +34,10 @@ type WebhookProvider struct {
 	// Headers
 	// +optional
 	Headers map[string]string `json:"headers,omitempty"`
+
+	// Auth specifies a authorization protocol. Only one protocol may be set.
+	// +optional
+	Auth *AuthorizationProtocol `json:"auth,omitempty"`
 
 	// Body
 	// +optional
@@ -59,6 +65,23 @@ type WebhookProvider struct {
 	// The provider for the CA bundle to use to validate webhook server certificate.
 	// +optional
 	CAProvider *WebhookCAProvider `json:"caProvider,omitempty"`
+}
+
+// AuthorizationProtocol contains the protocol-specific configuration
+// +kubebuilder:validation:MinProperties=1
+// +kubebuilder:validation:MaxProperties=1
+type AuthorizationProtocol struct {
+	// NTLMProtocol configures the store to use NTLM for auth
+	// +optional
+	NTLM *NTLMProtocol `json:"ntlm"`
+
+	// Define other protocols here
+}
+
+// NTLMProtocol contains the NTLM-specific configuration.
+type NTLMProtocol struct {
+	UserName esmeta.SecretKeySelector `json:"usernameSecret"`
+	Password esmeta.SecretKeySelector `json:"passwordSecret"`
 }
 
 type WebhookCAProviderType string

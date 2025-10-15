@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,11 +24,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/ecr"
-	"github.com/aws/aws-sdk-go/service/ecr/ecriface"
-	"github.com/aws/aws-sdk-go/service/ecrpublic"
-	"github.com/aws/aws-sdk-go/service/ecrpublic/ecrpubliciface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
+	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
+	"github.com/aws/aws-sdk-go-v2/service/ecrpublic"
+	ecrpublictypes "github.com/aws/aws-sdk-go-v2/service/ecrpublic/types"
 	v1 "k8s.io/api/core/v1"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,6 +56,7 @@ func TestGenerate(t *testing.T) {
 		{
 			name: "nil spec",
 			args: args{
+				ctx:      context.Background(),
 				jsonSpec: nil,
 			},
 			wantErr: true,
@@ -61,6 +64,7 @@ func TestGenerate(t *testing.T) {
 		{
 			name: "invalid json",
 			args: args{
+				ctx: context.Background(),
 				authTokenPrivateFunc: func(gati *ecr.GetAuthorizationTokenInput) (*ecr.GetAuthorizationTokenOutput, error) {
 					return nil, errors.New("boom")
 				},
@@ -73,6 +77,7 @@ func TestGenerate(t *testing.T) {
 		{
 			name: "private ECR full spec",
 			args: args{
+				ctx:       context.Background(),
 				namespace: "foobar",
 				kube: clientfake.NewClientBuilder().WithObjects(&v1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
@@ -87,7 +92,7 @@ func TestGenerate(t *testing.T) {
 				authTokenPrivateFunc: func(in *ecr.GetAuthorizationTokenInput) (*ecr.GetAuthorizationTokenOutput, error) {
 					t := time.Unix(1234, 0)
 					return &ecr.GetAuthorizationTokenOutput{
-						AuthorizationData: []*ecr.AuthorizationData{
+						AuthorizationData: []ecrtypes.AuthorizationData{
 							{
 								AuthorizationToken: utilpointer.To(base64.StdEncoding.EncodeToString([]byte("uuser:pass"))),
 								ProxyEndpoint:      utilpointer.To("foo"),
@@ -123,11 +128,12 @@ spec:
 		{
 			name: "public ECR full spec",
 			args: args{
+				ctx:       context.Background(),
 				namespace: "foobar",
 				authTokenPublicFunc: func(in *ecrpublic.GetAuthorizationTokenInput) (*ecrpublic.GetAuthorizationTokenOutput, error) {
 					t := time.Unix(5678, 0)
 					return &ecrpublic.GetAuthorizationTokenOutput{
-						AuthorizationData: &ecrpublic.AuthorizationData{
+						AuthorizationData: &ecrpublictypes.AuthorizationData{
 							AuthorizationToken: utilpointer.To(base64.StdEncoding.EncodeToString([]byte("pubuser:pubpass"))),
 							ExpiresAt:          &t,
 						},
@@ -157,12 +163,12 @@ spec:
 				tt.args.jsonSpec,
 				tt.args.kube,
 				tt.args.namespace,
-				func(aws *session.Session) ecriface.ECRAPI {
+				func(cfg *aws.Config) ecrAPI {
 					return &FakeECRPrivate{
 						authTokenFunc: tt.args.authTokenPrivateFunc,
 					}
 				},
-				func(aws *session.Session) ecrpubliciface.ECRPublicAPI {
+				func(cfg *aws.Config) ecrPublicAPI {
 					return &FakeECRPublic{
 						authTokenFunc: tt.args.authTokenPublicFunc,
 					}
@@ -180,19 +186,17 @@ spec:
 }
 
 type FakeECRPrivate struct {
-	ecriface.ECRAPI
 	authTokenFunc func(*ecr.GetAuthorizationTokenInput) (*ecr.GetAuthorizationTokenOutput, error)
 }
 
-func (e *FakeECRPrivate) GetAuthorizationToken(in *ecr.GetAuthorizationTokenInput) (*ecr.GetAuthorizationTokenOutput, error) {
-	return e.authTokenFunc(in)
+func (e *FakeECRPrivate) GetAuthorizationToken(ctx context.Context, params *ecr.GetAuthorizationTokenInput, optFns ...func(*ecr.Options)) (*ecr.GetAuthorizationTokenOutput, error) {
+	return e.authTokenFunc(params)
 }
 
 type FakeECRPublic struct {
-	ecrpubliciface.ECRPublicAPI
 	authTokenFunc func(*ecrpublic.GetAuthorizationTokenInput) (*ecrpublic.GetAuthorizationTokenOutput, error)
 }
 
-func (e *FakeECRPublic) GetAuthorizationToken(in *ecrpublic.GetAuthorizationTokenInput) (*ecrpublic.GetAuthorizationTokenOutput, error) {
-	return e.authTokenFunc(in)
+func (e *FakeECRPublic) GetAuthorizationToken(ctx context.Context, params *ecrpublic.GetAuthorizationTokenInput, optFns ...func(*ecrpublic.Options)) (*ecrpublic.GetAuthorizationTokenOutput, error) {
+	return e.authTokenFunc(params)
 }

@@ -17,6 +17,10 @@ MKDOCS_IMAGE ?= github.com/external-secrets-mkdocs:latest
 MKDOCS ?= mkdocs
 MIKE ?= mike
 DOCS_VERSION ?= main
+VERSION_NO_V ?= $(shell echo $(DOCS_VERSION) | cut -d'v' -f2)
+MAJOR_VERSION ?= $(shell echo $(VERSION_NO_V) | cut -d'.' -f1)
+MINOR_VERSION ?= $(shell echo $(VERSION_NO_V) | cut -d'.' -f2)
+VERSION_TO_CHECK ?= $(shell echo $(MAJOR_VERSION).$(MINOR_VERSION))
 DOCS_ALIAS ?= unstable
 SERVE_BIND_ADDRESS ?= 127.0.0.1
 
@@ -44,6 +48,17 @@ all: build
 image:
 	$(DOCKER) build -t $(MKDOCS_IMAGE) -f Dockerfile .
 
+VERSION_TO_UPDATE ?= $(shell echo $(MAJOR_VERSION).$(MINOR_VERSION).x)
+
+.PHONY: stability-support.update
+stability-support.update:
+	ROOT=$(ROOT) ./add_eso_version.sh $(VERSION_TO_UPDATE)
+
+.PHONY: check
+check:
+	@echo "Checking for version: $(VERSION_TO_CHECK)"
+	cat $(ROOT)/docs/introduction/stability-support.md | grep "$(VERSION_TO_CHECK)"
+
 .PHONY: build
 build: image generate $(SOURCES)
 	mkdir -p $(GENROOT)
@@ -51,7 +66,6 @@ build: image generate $(SOURCES)
 	    --mount type=bind,source=$(ROOT),target=/repo \
 		--sig-proxy=true \
 		--rm \
-		--user $(UID):$(GID) \
 		--env "GIT_COMMITTER_NAME=$(shell git config user.name)" \
 		--env "GIT_COMMITTER_EMAIL=$(shell git config user.email)" \
 		$(MKDOCS_IMAGE) \

@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -25,13 +27,12 @@ import (
 
 	"github.com/external-secrets/external-secrets-e2e/framework/addon"
 	"github.com/external-secrets/external-secrets-e2e/framework/util"
+	genv1alpha1 "github.com/external-secrets/external-secrets/apis/generators/v1alpha1"
 )
 
 var _ = SynchronizedBeforeSuite(func() []byte {
-	cfg := &addon.Config{}
-	cfg.KubeConfig, cfg.KubeClientSet, cfg.CRClient = util.NewConfig()
-	installArgo(cfg)
-	installESO(cfg)
+	installArgo()
+	installESO()
 	return nil
 }, func([]byte) {
 	// noop
@@ -40,6 +41,16 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 var _ = SynchronizedAfterSuite(func() {
 	// noop
 }, func() {
+	_, _, cl := util.NewConfig()
+	By("Deleting any pending generator states")
+	generatorStates := &genv1alpha1.GeneratorStateList{}
+	err := cl.List(GinkgoT().Context(), generatorStates)
+	Expect(err).ToNot(HaveOccurred())
+	for _, generatorState := range generatorStates.Items {
+		err = cl.Delete(GinkgoT().Context(), &generatorState)
+		Expect(err).ToNot(HaveOccurred())
+	}
+
 	By("Cleaning up global addons")
 	addon.UninstallGlobalAddons()
 	if CurrentSpecReport().Failed() {

@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -32,10 +34,20 @@ type GCPSMAuthSecretRef struct {
 }
 
 type GCPWorkloadIdentity struct {
+	// +kubebuilder:validation:Required
 	ServiceAccountRef esmeta.ServiceAccountSelector `json:"serviceAccountRef"`
-	ClusterLocation   string                        `json:"clusterLocation"`
-	ClusterName       string                        `json:"clusterName"`
-	ClusterProjectID  string                        `json:"clusterProjectID,omitempty"`
+	// ClusterLocation is the location of the cluster
+	// If not specified, it fetches information from the metadata server
+	// +optional
+	ClusterLocation string `json:"clusterLocation,omitempty"`
+	// ClusterName is the name of the cluster
+	// If not specified, it fetches information from the metadata server
+	// +optional
+	ClusterName string `json:"clusterName,omitempty"`
+	// ClusterProjectID is the project ID of the cluster
+	// If not specified, it fetches information from the metadata server
+	// +optional
+	ClusterProjectID string `json:"clusterProjectID,omitempty"`
 }
 
 // GCPSMProvider Configures a store to sync secrets using the GCP Secret Manager provider.

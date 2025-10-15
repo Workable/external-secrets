@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,9 +28,9 @@ import (
 	kubeClient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
-	"github.com/external-secrets/external-secrets/pkg/utils"
-	"github.com/external-secrets/external-secrets/pkg/utils/resolvers"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
+	"github.com/external-secrets/external-secrets/pkg/esutils/resolvers"
 )
 
 var (
@@ -36,20 +38,24 @@ var (
 	log           = ctrl.Log.WithName("provider").WithName("scaleway")
 )
 
+var _ esv1.Provider = &Provider{}
+
+// Provider is a Scaleway provider implementation that satisfies the esv1.Provider interface.
 type Provider struct{}
 
 // Capabilities return the provider supported capabilities (ReadOnly, WriteOnly, ReadWrite).
-func (p *Provider) Capabilities() esv1beta1.SecretStoreCapabilities {
-	return esv1beta1.SecretStoreReadWrite
+func (p *Provider) Capabilities() esv1.SecretStoreCapabilities {
+	return esv1.SecretStoreReadWrite
 }
 
-func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, kube kubeClient.Client, namespace string) (esv1beta1.SecretsClient, error) {
+// NewClient creates a new secrets client based on provided store.
+func (p *Provider) NewClient(ctx context.Context, store esv1.GenericStore, kube kubeClient.Client, namespace string) (esv1.SecretsClient, error) {
 	cfg, err := getConfig(store)
 	if err != nil {
 		return nil, err
 	}
 
-	if store.GetKind() == esv1beta1.ClusterSecretStoreKind && doesConfigDependOnNamespace(cfg) {
+	if store.GetKind() == esv1.ClusterSecretStoreKind && doesConfigDependOnNamespace(cfg) {
 		// we are not attached to a specific namespace, but some config values are dependent on it
 		return nil, errors.New("when using a ClusterSecretStore, namespaces must be explicitly set")
 	}
@@ -82,7 +88,7 @@ func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, 
 	}, nil
 }
 
-func loadConfigSecret(ctx context.Context, ref *esv1beta1.ScalewayProviderSecretRef, kube kubeClient.Client, defaultNamespace, storeKind string) (string, error) {
+func loadConfigSecret(ctx context.Context, ref *esv1.ScalewayProviderSecretRef, kube kubeClient.Client, defaultNamespace, storeKind string) (string, error) {
 	if ref.SecretRef == nil {
 		return ref.Value, nil
 	}
@@ -95,12 +101,12 @@ func loadConfigSecret(ctx context.Context, ref *esv1beta1.ScalewayProviderSecret
 	)
 }
 
-func validateSecretRef(store esv1beta1.GenericStore, ref *esv1beta1.ScalewayProviderSecretRef) error {
+func validateSecretRef(store esv1.GenericStore, ref *esv1.ScalewayProviderSecretRef) error {
 	if ref.SecretRef != nil {
 		if ref.Value != "" {
 			return errors.New("cannot specify both secret reference and value")
 		}
-		err := utils.ValidateReferentSecretSelector(store, *ref.SecretRef)
+		err := esutils.ValidateReferentSecretSelector(store, *ref.SecretRef)
 		if err != nil {
 			return err
 		}
@@ -111,7 +117,7 @@ func validateSecretRef(store esv1beta1.GenericStore, ref *esv1beta1.ScalewayProv
 	return nil
 }
 
-func doesConfigDependOnNamespace(cfg *esv1beta1.ScalewayProvider) bool {
+func doesConfigDependOnNamespace(cfg *esv1.ScalewayProvider) bool {
 	if cfg.AccessKey.SecretRef != nil && cfg.AccessKey.SecretRef.Namespace == nil {
 		return true
 	}
@@ -123,7 +129,7 @@ func doesConfigDependOnNamespace(cfg *esv1beta1.ScalewayProvider) bool {
 	return false
 }
 
-func getConfig(store esv1beta1.GenericStore) (*esv1beta1.ScalewayProvider, error) {
+func getConfig(store esv1.GenericStore) (*esv1.ScalewayProvider, error) {
 	if store == nil {
 		return nil, errors.New("missing store specification")
 	}
@@ -161,13 +167,14 @@ func getConfig(store esv1beta1.GenericStore) (*esv1beta1.ScalewayProvider, error
 	return cfg, nil
 }
 
-func (p *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnings, error) {
+// ValidateStore validates the store's configuration.
+func (p *Provider) ValidateStore(store esv1.GenericStore) (admission.Warnings, error) {
 	_, err := getConfig(store)
 	return nil, err
 }
 
 func init() {
-	esv1beta1.Register(&Provider{}, &esv1beta1.SecretStoreProvider{
-		Scaleway: &esv1beta1.ScalewayProvider{},
-	})
+	esv1.Register(&Provider{}, &esv1.SecretStoreProvider{
+		Scaleway: &esv1.ScalewayProvider{},
+	}, esv1.MaintenanceStatusMaintained)
 }

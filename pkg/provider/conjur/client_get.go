@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,7 +25,7 @@ import (
 	"github.com/cyberark/conjur-api-go/conjurapi"
 	"github.com/tidwall/gjson"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	"github.com/external-secrets/external-secrets/pkg/find"
 )
 
@@ -36,7 +38,7 @@ type conjurResource map[string]interface{}
 type resourceFilterFunc func(candidate conjurResource) (name string, err error)
 
 // GetSecret returns a single secret from the provider.
-func (c *Client) GetSecret(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) ([]byte, error) {
+func (c *Client) GetSecret(ctx context.Context, ref esv1.ExternalSecretDataRemoteRef) ([]byte, error) {
 	conjurClient, getConjurClientError := c.GetConjurClient(ctx)
 	if getConjurClientError != nil {
 		return nil, getConjurClientError
@@ -60,7 +62,7 @@ func (c *Client) GetSecret(ctx context.Context, ref esv1beta1.ExternalSecretData
 }
 
 // GetSecretMap returns multiple k/v pairs from the provider.
-func (c *Client) GetSecretMap(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
+func (c *Client) GetSecretMap(ctx context.Context, ref esv1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
 	// Gets a secret as normal, expecting secret value to be a json object
 	data, err := c.GetSecret(ctx, ref)
 	if err != nil {
@@ -85,14 +87,14 @@ func (c *Client) GetSecretMap(ctx context.Context, ref esv1beta1.ExternalSecretD
 // GetAllSecrets gets multiple secrets from the provider and loads into a kubernetes secret.
 // First load all secrets from secretStore path configuration
 // Then, gets secrets from a matching name or matching custom_metadata.
-func (c *Client) GetAllSecrets(ctx context.Context, ref esv1beta1.ExternalSecretFind) (map[string][]byte, error) {
+func (c *Client) GetAllSecrets(ctx context.Context, ref esv1.ExternalSecretFind) (map[string][]byte, error) {
 	if ref.Name != nil {
 		return c.findSecretsFromName(ctx, *ref.Name)
 	}
 	return c.findSecretsFromTags(ctx, ref.Tags)
 }
 
-func (c *Client) findSecretsFromName(ctx context.Context, ref esv1beta1.FindName) (map[string][]byte, error) {
+func (c *Client) findSecretsFromName(ctx context.Context, ref esv1.FindName) (map[string][]byte, error) {
 	matcher, err := find.New(ref)
 	if err != nil {
 		return nil, err

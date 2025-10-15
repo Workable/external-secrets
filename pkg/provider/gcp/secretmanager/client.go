@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,6 +25,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
@@ -37,17 +40,19 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	"github.com/external-secrets/external-secrets/pkg/constants"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
+	"github.com/external-secrets/external-secrets/pkg/esutils/metadata"
 	"github.com/external-secrets/external-secrets/pkg/find"
 	"github.com/external-secrets/external-secrets/pkg/metrics"
 	"github.com/external-secrets/external-secrets/pkg/provider/util/locks"
-	"github.com/external-secrets/external-secrets/pkg/utils"
-	"github.com/external-secrets/external-secrets/pkg/utils/metadata"
 )
 
 const (
-	CloudPlatformRole               = "https://www.googleapis.com/auth/cloud-platform"
+	// CloudPlatformRole is the OAuth2 scope required for GCP Cloud Platform access.
+	CloudPlatformRole = "https://www.googleapis.com/auth/cloud-platform"
+
 	defaultVersion                  = "latest"
 	errGCPSMStore                   = "received invalid GCPSM SecretStore resource"
 	errUnableGetCredentials         = "unable to get credentials: %w"
@@ -56,7 +61,7 @@ const (
 	errUnableCreateGCPSMClient      = "failed to create GCP secretmanager client: %w"
 	errUninitalizedGCPProvider      = "provider GCP is not initialized"
 	errClientGetSecretAccess        = "unable to access Secret from SecretManager Client: %w"
-	errJSONSecretUnmarshal          = "unable to unmarshal secret: %w"
+	errJSONSecretUnmarshal          = "unable to unmarshal secret from JSON: %w"
 
 	errInvalidStore           = "invalid store"
 	errInvalidStoreSpec       = "invalid store spec"
@@ -69,14 +74,21 @@ const (
 	managedByKey   = "managed-by"
 	managedByValue = "external-secrets"
 
-	providerName = "GCPSecretManager"
-	topicsKey    = "topics"
+	providerName               = "GCPSecretManager"
+	topicsKey                  = "topics"
+	globalSecretPath           = "projects/%s/secrets/%s"
+	globalSecretParentPath     = "projects/%s"
+	regionalSecretParentPath   = "projects/%s/locations/%s"
+	regionalSecretPath         = "projects/%s/locations/%s/secrets/%s"
+	globalSecretVersionsPath   = "projects/%s/secrets/%s/versions/%s"
+	regionalSecretVersionsPath = "projects/%s/locations/%s/secrets/%s/versions/%s"
 )
 
+// Client represents a Google Cloud Platform Secret Manager client.
 type Client struct {
 	smClient  GoogleSecretManagerClient
 	kube      kclient.Client
-	store     *esv1beta1.GCPSMProvider
+	store     *esv1.GCPSMProvider
 	storeKind string
 
 	// namespace of the external secret
@@ -84,6 +96,7 @@ type Client struct {
 	workloadIdentity *workloadIdentity
 }
 
+// GoogleSecretManagerClient defines the interface for interacting with Google Secret Manager.
 type GoogleSecretManagerClient interface {
 	DeleteSecret(ctx context.Context, req *secretmanagerpb.DeleteSecretRequest, opts ...gax.CallOption) error
 	AccessSecretVersion(ctx context.Context, req *secretmanagerpb.AccessSecretVersionRequest, opts ...gax.CallOption) (*secretmanagerpb.AccessSecretVersionResponse, error)
@@ -93,13 +106,16 @@ type GoogleSecretManagerClient interface {
 	Close() error
 	GetSecret(ctx context.Context, req *secretmanagerpb.GetSecretRequest, opts ...gax.CallOption) (*secretmanagerpb.Secret, error)
 	UpdateSecret(context.Context, *secretmanagerpb.UpdateSecretRequest, ...gax.CallOption) (*secretmanagerpb.Secret, error)
+	ListSecretVersions(ctx context.Context, req *secretmanagerpb.ListSecretVersionsRequest, opts ...gax.CallOption) *secretmanager.SecretVersionIterator
 }
 
 var log = ctrl.Log.WithName("provider").WithName("gcp").WithName("secretsmanager")
 
-func (c *Client) DeleteSecret(ctx context.Context, remoteRef esv1beta1.PushSecretRemoteRef) error {
+// DeleteSecret deletes a secret from Google Cloud Secret Manager.
+func (c *Client) DeleteSecret(ctx context.Context, remoteRef esv1.PushSecretRemoteRef) error {
+	name := getName(c.store.ProjectID, c.store.Location, remoteRef.GetRemoteKey())
 	gcpSecret, err := c.smClient.GetSecret(ctx, &secretmanagerpb.GetSecretRequest{
-		Name: fmt.Sprintf("projects/%s/secrets/%s", c.store.ProjectID, remoteRef.GetRemoteKey()),
+		Name: name,
 	})
 	metrics.ObserveAPICall(constants.ProviderGCPSM, constants.CallGCPSMGetSecret, err)
 	if err != nil {
@@ -113,9 +129,8 @@ func (c *Client) DeleteSecret(ctx context.Context, remoteRef esv1beta1.PushSecre
 	if manager, ok := gcpSecret.Labels[managedByKey]; !ok || manager != managedByValue {
 		return nil
 	}
-
 	deleteSecretVersionReq := &secretmanagerpb.DeleteSecretRequest{
-		Name: fmt.Sprintf("projects/%s/secrets/%s", c.store.ProjectID, remoteRef.GetRemoteKey()),
+		Name: name,
 		Etag: gcpSecret.Etag,
 	}
 	err = c.smClient.DeleteSecret(ctx, deleteSecretVersionReq)
@@ -126,13 +141,14 @@ func (c *Client) DeleteSecret(ctx context.Context, remoteRef esv1beta1.PushSecre
 func parseError(err error) error {
 	var gerr *apierror.APIError
 	if errors.As(err, &gerr) && gerr.GRPCStatus().Code() == codes.NotFound {
-		return esv1beta1.NoSecretError{}
+		return esv1.NoSecretError{}
 	}
 	return err
 }
 
-func (c *Client) SecretExists(ctx context.Context, ref esv1beta1.PushSecretRemoteRef) (bool, error) {
-	secretName := fmt.Sprintf("projects/%s/secrets/%s", c.store.ProjectID, ref.GetRemoteKey())
+// SecretExists checks if a secret exists in Google Cloud Secret Manager.
+func (c *Client) SecretExists(ctx context.Context, ref esv1.PushSecretRemoteRef) (bool, error) {
+	secretName := fmt.Sprintf(globalSecretPath, c.store.ProjectID, ref.GetRemoteKey())
 	gcpSecret, err := c.smClient.GetSecret(ctx, &secretmanagerpb.GetSecretRequest{
 		Name: secretName,
 	})
@@ -148,7 +164,7 @@ func (c *Client) SecretExists(ctx context.Context, ref esv1beta1.PushSecretRemot
 }
 
 // PushSecret pushes a kubernetes secret key into gcp provider Secret.
-func (c *Client) PushSecret(ctx context.Context, secret *corev1.Secret, pushSecretData esv1beta1.PushSecretData) error {
+func (c *Client) PushSecret(ctx context.Context, secret *corev1.Secret, pushSecretData esv1.PushSecretData) error {
 	var (
 		payload []byte
 		err     error
@@ -159,14 +175,14 @@ func (c *Client) PushSecret(ctx context.Context, secret *corev1.Secret, pushSecr
 		for k, v := range secret.Data {
 			secretStringVal[k] = string(v)
 		}
-		payload, err = utils.JSONMarshal(secretStringVal)
+		payload, err = esutils.JSONMarshal(secretStringVal)
 		if err != nil {
 			return fmt.Errorf("failed to serialize secret content as JSON: %w", err)
 		}
 	} else {
 		payload = secret.Data[pushSecretData.GetSecretKey()]
 	}
-	secretName := fmt.Sprintf("projects/%s/secrets/%s", c.store.ProjectID, pushSecretData.GetRemoteKey())
+	secretName := getName(c.store.ProjectID, c.store.Location, pushSecretData.GetRemoteKey())
 	gcpSecret, err := c.smClient.GetSecret(ctx, &secretmanagerpb.GetSecretRequest{
 		Name: secretName,
 	})
@@ -183,24 +199,21 @@ func (c *Client) PushSecret(ctx context.Context, secret *corev1.Secret, pushSecr
 			},
 		}
 
-		if c.store.Location != "" {
-			replica := &secretmanagerpb.Replication_UserManaged_Replica{
-				Location: c.store.Location,
+		if pushSecretData.GetMetadata() != nil {
+			replica := &secretmanagerpb.Replication_UserManaged_Replica{}
+			var err error
+			meta, err := metadata.ParseMetadataParameters[PushSecretMetadataSpec](pushSecretData.GetMetadata())
+			if err != nil {
+				return fmt.Errorf("failed to parse PushSecret metadata: %w", err)
 			}
-
-			if pushSecretData.GetMetadata() != nil {
-				var err error
-				meta, err := metadata.ParseMetadataParameters[PushSecretMetadataSpec](pushSecretData.GetMetadata())
-				if err != nil {
-					return fmt.Errorf("failed to parse PushSecret metadata: %w", err)
-				}
-				if meta != nil && meta.Spec.CMEKKeyName != "" {
-					replica.CustomerManagedEncryption = &secretmanagerpb.CustomerManagedEncryption{
-						KmsKeyName: meta.Spec.CMEKKeyName,
-					}
+			if meta != nil && meta.Spec.ReplicationLocation != "" {
+				replica.Location = meta.Spec.ReplicationLocation
+			}
+			if meta != nil && meta.Spec.CMEKKeyName != "" {
+				replica.CustomerManagedEncryption = &secretmanagerpb.CustomerManagedEncryption{
+					KmsKeyName: meta.Spec.CMEKKeyName,
 				}
 			}
-
 			replication = &secretmanagerpb.Replication{
 				Replication: &secretmanagerpb.Replication_UserManaged_{
 					UserManaged: &secretmanagerpb.Replication_UserManaged{
@@ -211,15 +224,18 @@ func (c *Client) PushSecret(ctx context.Context, secret *corev1.Secret, pushSecr
 				},
 			}
 		}
-
+		parent := getParentName(c.store.ProjectID, c.store.Location)
 		scrt := &secretmanagerpb.Secret{
 			Labels: map[string]string{
 				managedByKey: managedByValue,
 			},
-			Replication: replication,
+		}
+		// fix: cannot set Replication at all when using regional Secrets.
+		if c.store.Location == "" {
+			scrt.Replication = replication
 		}
 
-		topics, err := utils.FetchValueFromMetadata(topicsKey, pushSecretData.GetMetadata(), []any{})
+		topics, err := esutils.FetchValueFromMetadata(topicsKey, pushSecretData.GetMetadata(), []any{})
 		if err != nil {
 			return fmt.Errorf("failed to fetch topics from metadata: %w", err)
 		}
@@ -236,7 +252,7 @@ func (c *Client) PushSecret(ctx context.Context, secret *corev1.Secret, pushSecr
 		}
 
 		gcpSecret, err = c.smClient.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{
-			Parent:   fmt.Sprintf("projects/%s", c.store.ProjectID),
+			Parent:   parent,
 			SecretId: pushSecretData.GetRemoteKey(),
 			Secret:   scrt,
 		})
@@ -327,8 +343,10 @@ func (c *Client) PushSecret(ctx context.Context, secret *corev1.Secret, pushSecr
 		return err
 	}
 
+	parent := getName(c.store.ProjectID, c.store.Location, pushSecretData.GetRemoteKey())
+
 	addSecretVersionReq := &secretmanagerpb.AddSecretVersionRequest{
-		Parent: fmt.Sprintf("projects/%s/secrets/%s", c.store.ProjectID, pushSecretData.GetRemoteKey()),
+		Parent: parent,
 		Payload: &secretmanagerpb.SecretPayload{
 			Data: data,
 		},
@@ -340,7 +358,7 @@ func (c *Client) PushSecret(ctx context.Context, secret *corev1.Secret, pushSecr
 }
 
 // GetAllSecrets syncs multiple secrets from gcp provider into a single Kubernetes Secret.
-func (c *Client) GetAllSecrets(ctx context.Context, ref esv1beta1.ExternalSecretFind) (map[string][]byte, error) {
+func (c *Client) GetAllSecrets(ctx context.Context, ref esv1.ExternalSecretFind) (map[string][]byte, error) {
 	if ref.Name != nil {
 		return c.findByName(ctx, ref)
 	}
@@ -351,14 +369,15 @@ func (c *Client) GetAllSecrets(ctx context.Context, ref esv1beta1.ExternalSecret
 	return nil, errors.New(errUnexpectedFindOperator)
 }
 
-func (c *Client) findByName(ctx context.Context, ref esv1beta1.ExternalSecretFind) (map[string][]byte, error) {
+func (c *Client) findByName(ctx context.Context, ref esv1.ExternalSecretFind) (map[string][]byte, error) {
 	// regex matcher
 	matcher, err := find.New(*ref.Name)
 	if err != nil {
 		return nil, err
 	}
+	parent := getParentName(c.store.ProjectID, c.store.Location)
 	req := &secretmanagerpb.ListSecretsRequest{
-		Parent: fmt.Sprintf("projects/%s", c.store.ProjectID),
+		Parent: parent,
 	}
 	if ref.Path != nil {
 		req.Filter = fmt.Sprintf("name:%s", *ref.Path)
@@ -394,11 +413,11 @@ func (c *Client) findByName(ctx context.Context, ref esv1beta1.ExternalSecretFin
 		}
 	}
 
-	return utils.ConvertKeys(ref.ConversionStrategy, secretMap)
+	return esutils.ConvertKeys(ref.ConversionStrategy, secretMap)
 }
 
 func (c *Client) getData(ctx context.Context, key string) ([]byte, error) {
-	dataRef := esv1beta1.ExternalSecretDataRemoteRef{
+	dataRef := esv1.ExternalSecretDataRemoteRef{
 		Key: key,
 	}
 	data, err := c.GetSecret(ctx, dataRef)
@@ -408,7 +427,7 @@ func (c *Client) getData(ctx context.Context, key string) ([]byte, error) {
 	return data, nil
 }
 
-func (c *Client) findByTags(ctx context.Context, ref esv1beta1.ExternalSecretFind) (map[string][]byte, error) {
+func (c *Client) findByTags(ctx context.Context, ref esv1.ExternalSecretFind) (map[string][]byte, error) {
 	var tagFilter string
 	for k, v := range ref.Tags {
 		tagFilter = fmt.Sprintf("%slabels.%s=%s ", tagFilter, k, v)
@@ -447,12 +466,13 @@ func (c *Client) findByTags(ctx context.Context, ref esv1beta1.ExternalSecretFin
 		}
 	}
 
-	return utils.ConvertKeys(ref.ConversionStrategy, secretMap)
+	return esutils.ConvertKeys(ref.ConversionStrategy, secretMap)
 }
 
 func (c *Client) trimName(name string) string {
 	projectIDNumuber := c.extractProjectIDNumber(name)
-	key := strings.TrimPrefix(name, fmt.Sprintf("projects/%s/secrets/", projectIDNumuber))
+	prefix := getParentName(projectIDNumuber, c.store.Location)
+	key := strings.TrimPrefix(name, fmt.Sprintf("%s/secrets/", prefix))
 	return key
 }
 
@@ -466,12 +486,12 @@ func (c *Client) extractProjectIDNumber(secretFullName string) string {
 }
 
 // GetSecret returns a single secret from the provider.
-func (c *Client) GetSecret(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) ([]byte, error) {
-	if utils.IsNil(c.smClient) || c.store.ProjectID == "" {
+func (c *Client) GetSecret(ctx context.Context, ref esv1.ExternalSecretDataRemoteRef) ([]byte, error) {
+	if esutils.IsNil(c.smClient) || c.store.ProjectID == "" {
 		return nil, errors.New(errUninitalizedGCPProvider)
 	}
 
-	if ref.MetadataPolicy == esv1beta1.ExternalSecretMetadataPolicyFetch {
+	if ref.MetadataPolicy == esv1.ExternalSecretMetadataPolicyFetch {
 		return c.getSecretMetadata(ctx, ref)
 	}
 
@@ -479,14 +499,28 @@ func (c *Client) GetSecret(ctx context.Context, ref esv1beta1.ExternalSecretData
 	if version == "" {
 		version = defaultVersion
 	}
-
+	name := fmt.Sprintf(globalSecretVersionsPath, c.store.ProjectID, ref.Key, version)
+	if c.store.Location != "" {
+		name = fmt.Sprintf(regionalSecretVersionsPath, c.store.ProjectID, c.store.Location, ref.Key, version)
+	}
 	req := &secretmanagerpb.AccessSecretVersionRequest{
-		Name: fmt.Sprintf("projects/%s/secrets/%s/versions/%s", c.store.ProjectID, ref.Key, version),
+		Name: name,
 	}
 	result, err := c.smClient.AccessSecretVersion(ctx, req)
 	metrics.ObserveAPICall(constants.ProviderGCPSM, constants.CallGCPSMAccessSecretVersion, err)
-	err = parseError(err)
+	if err != nil && c.store.SecretVersionSelectionPolicy == esv1.SecretVersionSelectionPolicyLatestOrFetch &&
+		ref.Version == "" && isErrSecretDestroyedOrDisabled(err) {
+		// if the secret is destroyed or disabled, and we are configured to get the latest enabled secret,
+		// we need to get the latest enabled secret
+		// Extract the secret name from the version name for ListSecretVersions
+		secretName := fmt.Sprintf(globalSecretPath, c.store.ProjectID, ref.Key)
+		if c.store.Location != "" {
+			secretName = fmt.Sprintf(regionalSecretPath, c.store.ProjectID, c.store.Location, ref.Key)
+		}
+		result, err = getLatestEnabledVersion(ctx, c.smClient, secretName)
+	}
 	if err != nil {
+		err = parseError(err)
 		return nil, fmt.Errorf(errClientGetSecretAccess, err)
 	}
 
@@ -497,16 +531,20 @@ func (c *Client) GetSecret(ctx context.Context, ref esv1beta1.ExternalSecretData
 		return nil, fmt.Errorf("invalid secret received. no secret string for key: %s", ref.Key)
 	}
 
-	val := getDataByProperty(result.Payload.Data, ref.Property)
+	val, err := getDataByProperty(result.Payload.Data, ref.Property)
+	if err != nil {
+		return nil, err
+	}
 	if !val.Exists() {
 		return nil, fmt.Errorf("key %s does not exist in secret %s", ref.Property, ref.Key)
 	}
 	return []byte(val.String()), nil
 }
 
-func (c *Client) getSecretMetadata(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) ([]byte, error) {
+func (c *Client) getSecretMetadata(ctx context.Context, ref esv1.ExternalSecretDataRemoteRef) ([]byte, error) {
+	name := getName(c.store.ProjectID, c.store.Location, ref.Key)
 	secret, err := c.smClient.GetSecret(ctx, &secretmanagerpb.GetSecretRequest{
-		Name: fmt.Sprintf("projects/%s/secrets/%s", c.store.ProjectID, ref.Key),
+		Name: name,
 	})
 
 	err = parseError(err)
@@ -579,7 +617,7 @@ func (c *Client) extractMetadataKey(s, p string) string {
 }
 
 // GetSecretMap returns multiple k/v pairs from the provider.
-func (c *Client) GetSecretMap(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
+func (c *Client) GetSecretMap(ctx context.Context, ref esv1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
 	if c.smClient == nil || c.store.ProjectID == "" {
 		return nil, errors.New(errUninitalizedGCPProvider)
 	}
@@ -609,6 +647,7 @@ func (c *Client) GetSecretMap(ctx context.Context, ref esv1beta1.ExternalSecretD
 	return secretData, nil
 }
 
+// Close closes the Google Cloud Secret Manager client connection.
 func (c *Client) Close(_ context.Context) error {
 	var err error
 	if c.smClient != nil {
@@ -624,14 +663,18 @@ func (c *Client) Close(_ context.Context) error {
 	return nil
 }
 
-func (c *Client) Validate() (esv1beta1.ValidationResult, error) {
-	if c.storeKind == esv1beta1.ClusterSecretStoreKind && isReferentSpec(c.store) {
-		return esv1beta1.ValidationResultUnknown, nil
+// Validate performs validation of the Google Cloud Secret Manager client configuration.
+func (c *Client) Validate() (esv1.ValidationResult, error) {
+	if c.storeKind == esv1.ClusterSecretStoreKind && isReferentSpec(c.store) {
+		return esv1.ValidationResultUnknown, nil
 	}
-	return esv1beta1.ValidationResultReady, nil
+	return esv1.ValidationResultReady, nil
 }
 
-func getDataByProperty(data []byte, property string) gjson.Result {
+func getDataByProperty(data []byte, property string) (gjson.Result, error) {
+	if !json.Valid(data) {
+		return gjson.Result{}, errors.New(errJSONSecretUnmarshal)
+	}
 	var payload string
 	if data != nil {
 		payload = string(data)
@@ -642,8 +685,51 @@ func getDataByProperty(data []byte, property string) gjson.Result {
 		refProperty = strings.ReplaceAll(refProperty, ".", "\\.")
 		val := gjson.Get(payload, refProperty)
 		if val.Exists() {
-			return val
+			return val, nil
 		}
 	}
-	return gjson.Get(payload, property)
+	return gjson.Get(payload, property), nil
+}
+
+func getName(projectID, location, key string) string {
+	if location != "" {
+		return fmt.Sprintf(regionalSecretPath, projectID, location, key)
+	}
+	return fmt.Sprintf(globalSecretPath, projectID, key)
+}
+
+func getParentName(projectID, location string) string {
+	if location != "" {
+		return fmt.Sprintf(regionalSecretParentPath, projectID, location)
+	}
+	return fmt.Sprintf(globalSecretParentPath, projectID)
+}
+
+func isErrSecretDestroyedOrDisabled(err error) bool {
+	st, _ := status.FromError(err)
+	return st.Code() == codes.FailedPrecondition &&
+		(strings.Contains(st.Message(), "DESTROYED state") || strings.Contains(st.Message(), "DISABLED state"))
+}
+
+func getLatestEnabledVersion(ctx context.Context, client GoogleSecretManagerClient, name string) (*secretmanagerpb.AccessSecretVersionResponse, error) {
+	iter := client.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
+		Parent: name,
+		Filter: "state:ENABLED",
+	})
+	latestCreateTime := time.Unix(0, 0)
+	latestVersion := &secretmanagerpb.SecretVersion{}
+	for {
+		version, err := iter.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if version.CreateTime.AsTime().After(latestCreateTime) {
+			latestCreateTime = version.CreateTime.AsTime()
+			latestVersion = version
+		}
+	}
+	req := &secretmanagerpb.AccessSecretVersionRequest{
+		Name: fmt.Sprintf("%s/versions/%s", name, latestVersion.Name),
+	}
+	return client.AccessSecretVersion(ctx, req)
 }

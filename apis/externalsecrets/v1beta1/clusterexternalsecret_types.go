@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -36,9 +38,7 @@ type ClusterExternalSecretSpec struct {
 	// +optional
 	ExternalSecretMetadata ExternalSecretMetadata `json:"externalSecretMetadata,omitempty"`
 
-	// The labels to select by to find the Namespaces to create the ExternalSecrets in.
-	// Deprecated: Use NamespaceSelectors instead.
-	// +optional
+	// The labels to select by to find the Namespaces to create the ExternalSecrets in
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 
 	// A list of labels to select by to find the Namespaces to create the ExternalSecrets in. The selectors are ORed.
@@ -46,6 +46,7 @@ type ClusterExternalSecretSpec struct {
 	NamespaceSelectors []*metav1.LabelSelector `json:"namespaceSelectors,omitempty"`
 
 	// Choose namespaces by name. This field is ORed with anything that NamespaceSelectors ends up choosing.
+	// Deprecated: Use NamespaceSelectors instead.
 	// +optional
 	// +kubebuilder:validation:items:MinLength:=1
 	// +kubebuilder:validation:items:MaxLength:=63
@@ -106,9 +107,10 @@ type ClusterExternalSecretStatus struct {
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:storageversion
 // +kubebuilder:resource:scope=Cluster,categories={external-secrets},shortName=ces
 // +kubebuilder:subresource:status
+// +kubebuilder:unservedversion
+// +kubebuilder:deprecatedversion
 // +kubebuilder:metadata:labels="external-secrets.io/component=controller"
 // +kubebuilder:printcolumn:name="Store",type=string,JSONPath=`.spec.externalSecretSpec.secretStoreRef.name`
 // +kubebuilder:printcolumn:name="Refresh Interval",type=string,JSONPath=`.spec.refreshTime`

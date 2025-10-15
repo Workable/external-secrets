@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,8 +31,9 @@ type grpcLockboxClient struct {
 	lockboxPayloadClient api.PayloadServiceClient
 }
 
+// NewGrpcLockboxClient creates a new LockboxClient.
 func NewGrpcLockboxClient(ctx context.Context, apiEndpoint string, authorizedKey *iamkey.Key, caCertificate []byte) (LockboxClient, error) {
-	conn, err := common.NewGrpcConnection(
+	conn, err := ydxcommon.NewGrpcConnection(
 		ctx,
 		apiEndpoint,
 		"lockbox-payload", // taken from https://api.cloud.yandex.net/endpoints
@@ -50,10 +53,33 @@ func (c *grpcLockboxClient) GetPayloadEntries(ctx context.Context, iamToken, sec
 			SecretId:  secretID,
 			VersionId: versionID,
 		},
-		grpc.PerRPCCredentials(common.PerRPCCredentials{IamToken: iamToken}),
+		grpc.PerRPCCredentials(ydxcommon.PerRPCCredentials{IamToken: iamToken}),
 	)
 	if err != nil {
 		return nil, err
 	}
 	return payload.Entries, nil
+}
+
+func (c *grpcLockboxClient) GetExPayload(ctx context.Context, iamToken, folderID, name, versionID string) (map[string][]byte, error) {
+	request := &api.GetExRequest{
+		Identifier: &api.GetExRequest_FolderAndName{
+			FolderAndName: &api.FolderAndName{
+				FolderId:   folderID,
+				SecretName: name,
+			},
+		},
+		VersionId: versionID,
+	}
+
+	response, err := c.lockboxPayloadClient.GetEx(
+		ctx,
+		request,
+		grpc.PerRPCCredentials(ydxcommon.PerRPCCredentials{IamToken: iamToken}),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return response.Entries, nil
 }

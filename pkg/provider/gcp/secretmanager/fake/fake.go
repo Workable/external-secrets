@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -38,6 +40,13 @@ type MockSMClient struct {
 	closeFn                 func() error
 	GetSecretFn             func(ctx context.Context, req *secretmanagerpb.GetSecretRequest, opts ...gax.CallOption) (*secretmanagerpb.Secret, error)
 	DeleteSecretFn          func(ctx context.Context, req *secretmanagerpb.DeleteSecretRequest, opts ...gax.CallOption) error
+	ListSecretVersionsFn    func(ctx context.Context, req *secretmanagerpb.ListSecretVersionsRequest, opts ...gax.CallOption) *secretmanager.SecretVersionIterator
+}
+
+func (mc *MockSMClient) Cleanup() {
+	mc.CreateSecretCalledWithN = map[int]*secretmanagerpb.CreateSecretRequest{}
+	mc.createSecretCallN = 0
+	mc.UpdateSecretCallN = 0
 }
 
 type AccessSecretVersionMockReturn struct {
@@ -192,6 +201,10 @@ func (mc *MockSMClient) NewUpdateSecretFn(mock SecretMockReturn) {
 	mc.updateSecretFn = func(_ context.Context, _ *secretmanagerpb.UpdateSecretRequest, _ ...gax.CallOption) (*secretmanagerpb.Secret, error) {
 		return mock.Secret, mock.Err
 	}
+}
+
+func (mc *MockSMClient) ListSecretVersions(ctx context.Context, req *secretmanagerpb.ListSecretVersionsRequest, _ ...gax.CallOption) *secretmanager.SecretVersionIterator {
+	return mc.ListSecretVersionsFn(ctx, req)
 }
 
 func (mc *MockSMClient) WithValue(_ context.Context, req *secretmanagerpb.AccessSecretVersionRequest, val *secretmanagerpb.AccessSecretVersionResponse, err error) {

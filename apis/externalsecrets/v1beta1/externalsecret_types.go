@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -118,11 +120,10 @@ const (
 	MergePolicyMerge   TemplateMergePolicy = "Merge"
 )
 
-// +kubebuilder:validation:Enum=v1;v2
+// +kubebuilder:validation:Enum=v2
 type TemplateEngineVersion string
 
 const (
-	TemplateEngineV1 TemplateEngineVersion = "v1"
 	TemplateEngineV2 TemplateEngineVersion = "v2"
 )
 
@@ -305,6 +306,8 @@ type ExternalSecretDataFromRemoteRef struct {
 	SourceRef *StoreGeneratorSourceRef `json:"sourceRef,omitempty"`
 }
 
+// +kubebuilder:validation:MinProperties=1
+// +kubebuilder:validation:MaxProperties=1
 type ExternalSecretRewrite struct {
 	// Used to rewrite with regular expressions.
 	// The resulting key will be the output of a regexp.ReplaceAll operation.
@@ -360,6 +363,15 @@ type FindName struct {
 	RegExp string `json:"regexp,omitempty"`
 }
 
+// +kubebuilder:validation:Enum=CreatedOnce;Periodic;OnChange
+type ExternalSecretRefreshPolicy string
+
+const (
+	RefreshPolicyCreatedOnce ExternalSecretRefreshPolicy = "CreatedOnce"
+	RefreshPolicyPeriodic    ExternalSecretRefreshPolicy = "Periodic"
+	RefreshPolicyOnChange    ExternalSecretRefreshPolicy = "OnChange"
+)
+
 // ExternalSecretSpec defines the desired state of ExternalSecret.
 type ExternalSecretSpec struct {
 	// +optional
@@ -369,10 +381,18 @@ type ExternalSecretSpec struct {
 	// +optional
 	Target ExternalSecretTarget `json:"target,omitempty"`
 
+	// RefreshPolicy determines how the ExternalSecret should be refreshed:
+	// - CreatedOnce: Creates the Secret only if it does not exist and does not update it thereafter
+	// - Periodic: Synchronizes the Secret from the external source at regular intervals specified by refreshInterval.
+	//   No periodic updates occur if refreshInterval is 0.
+	// - OnChange: Only synchronizes the Secret when the ExternalSecret's metadata or specification changes
+	// +optional
+	RefreshPolicy ExternalSecretRefreshPolicy `json:"refreshPolicy,omitempty"`
+
 	// RefreshInterval is the amount of time before the values are read again from the SecretStore provider,
 	// specified as Golang Duration strings.
 	// Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h"
-	// Example values: "1h", "2h30m", "5d", "10s"
+	// Example values: "1h", "2h30m", "10s"
 	// May be set to zero to fetch and create it once. Defaults to 1h.
 	// +kubebuilder:default="1h"
 	RefreshInterval *metav1.Duration `json:"refreshInterval,omitempty"`
@@ -424,7 +444,7 @@ type GeneratorRef struct {
 	APIVersion string `json:"apiVersion,omitempty"`
 
 	// Specify the Kind of the generator resource
-	// +kubebuilder:validation:Enum=ACRAccessToken;ClusterGenerator;ECRAuthorizationToken;Fake;GCRAccessToken;GithubAccessToken;QuayAccessToken;Password;STSSessionToken;UUID;VaultDynamicSecret;Webhook;Grafana
+	// +kubebuilder:validation:Enum=ACRAccessToken;ClusterGenerator;ECRAuthorizationToken;Fake;GCRAccessToken;GithubAccessToken;QuayAccessToken;Password;SSHKey;STSSessionToken;UUID;VaultDynamicSecret;Webhook;Grafana
 	Kind string `json:"kind"`
 
 	// Specify the name of the generator resource
@@ -490,9 +510,10 @@ type ExternalSecretStatus struct {
 }
 
 // +kubebuilder:object:root=true
-// +kubebuilder:storageversion
 // ExternalSecret is the Schema for the external-secrets API.
 // +kubebuilder:subresource:status
+// +kubebuilder:unservedversion
+// +kubebuilder:deprecatedversion
 // +kubebuilder:metadata:labels="external-secrets.io/component=controller"
 // +kubebuilder:resource:scope=Namespaced,categories={external-secrets},shortName=es
 // +kubebuilder:printcolumn:name="StoreType",type=string,JSONPath=`.spec.secretStoreRef.kind`

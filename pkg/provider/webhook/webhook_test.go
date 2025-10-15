@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,8 +31,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	"github.com/external-secrets/external-secrets/apis/externalsecrets/v1alpha1"
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
 )
 
 type testCase struct {
@@ -96,7 +98,7 @@ args:
   response: not found
 want:
   path: /api/getsecret?id=testkey&version=1
-  err: ` + esv1beta1.NoSecretErr.Error() + `
+  err: ` + esv1.NoSecretErr.Error() + `
 ---
 case: error server error
 args:
@@ -187,6 +189,34 @@ args:
 want:
   path: /api/getsecret?id=testkey&version=1
   err: ''
+  resultmap:
+    thesecret: secret-value
+    alsosecret: another-value
+---
+case: templated jsonpath good json map
+args:
+  url: /api/getsecret?id={{ .remoteRef.key }}&version={{ .remoteRef.version }}
+  key: testkey
+  version: 1
+  jsonpath: $.{{printf "result" }}
+  response: '{"result":{"thesecret":"secret-value","alsosecret":"another-value"}}'
+want:
+  path: /api/getsecret?id=testkey&version=1
+  err: ''
+  resultmap:
+    thesecret: secret-value
+    alsosecret: another-value
+---
+case: templated jsonpath invalid template
+args:
+  url: /api/getsecret?id={{ .remoteRef.key }}&version={{ .remoteRef.version }}
+  key: testkey
+  version: 1
+  jsonpath: $.{{printf 'result' }}
+  response: '{"result":{"thesecret":"secret-value","alsosecret":"another-value"}}'
+want:
+  path: /api/getsecret?id=testkey&version=1
+  err: "cannot get templated json path"
   resultmap:
     thesecret: secret-value
     alsosecret: another-value
@@ -347,6 +377,26 @@ args:
 want:
   path: /api/getsecrets?folder=%2Fmyapp%2Fsecrets
   body: '{"folder": "/myapp/secrets"}'
+---
+case: namespace template in headers
+args:
+  url: /api/getsecret?id={{ .remoteRef.key }}
+  key: testkey
+  response: secret-value
+want:
+  path: /api/getsecret?id=testkey
+  err: ''
+  result: secret-value
+---
+case: namespace template in url
+args:
+  url: /api/getsecret?id={{ .remoteRef.key }}&namespace={{ .remoteRef.namespace }}
+  key: testkey
+  response: secret-value
+want:
+  path: /api/getsecret?id=testkey&namespace=testnamespace
+  err: ''
+  result: secret-value
 `
 
 func TestWebhookGetSecret(t *testing.T) {
@@ -544,8 +594,8 @@ func runTestCase(tc testCase, t *testing.T) {
 	})
 }
 
-func testGetSecretMap(tc testCase, t *testing.T, client esv1beta1.SecretsClient) {
-	testRef := esv1beta1.ExternalSecretDataRemoteRef{
+func testGetSecretMap(tc testCase, t *testing.T, client esv1.SecretsClient) {
+	testRef := esv1.ExternalSecretDataRemoteRef{
 		Key:     tc.Args.Key,
 		Version: tc.Args.Version,
 	}
@@ -569,8 +619,8 @@ func testGetSecretMap(tc testCase, t *testing.T, client esv1beta1.SecretsClient)
 	}
 }
 
-func testGetSecret(tc testCase, t *testing.T, client esv1beta1.SecretsClient) {
-	testRef := esv1beta1.ExternalSecretDataRemoteRef{
+func testGetSecret(tc testCase, t *testing.T, client esv1.SecretsClient) {
+	testRef := esv1.ExternalSecretDataRemoteRef{
 		Key:      tc.Args.Key,
 		Property: tc.Args.Property,
 		Version:  tc.Args.Version,
@@ -590,7 +640,7 @@ func testGetSecret(tc testCase, t *testing.T, client esv1beta1.SecretsClient) {
 	}
 }
 
-func testPushSecret(tc testCase, t *testing.T, client esv1beta1.SecretsClient) {
+func testPushSecret(tc testCase, t *testing.T, client esv1.SecretsClient) {
 	testRef := v1alpha1.PushSecretData{
 		Match: v1alpha1.PushSecretMatch{
 			SecretKey: tc.Args.SecretKey,
@@ -626,8 +676,8 @@ func testPushSecret(tc testCase, t *testing.T, client esv1beta1.SecretsClient) {
 	}
 }
 
-func makeClusterSecretStore(url string, args args) *esv1beta1.ClusterSecretStore {
-	store := &esv1beta1.ClusterSecretStore{
+func makeClusterSecretStore(url string, args args) *esv1.ClusterSecretStore {
+	store := &esv1.ClusterSecretStore{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "ClusterSecretStore",
 		},
@@ -635,16 +685,17 @@ func makeClusterSecretStore(url string, args args) *esv1beta1.ClusterSecretStore
 			Name:      "wehbook-store",
 			Namespace: "default",
 		},
-		Spec: esv1beta1.SecretStoreSpec{
-			Provider: &esv1beta1.SecretStoreProvider{
-				Webhook: &esv1beta1.WebhookProvider{
+		Spec: esv1.SecretStoreSpec{
+			Provider: &esv1.SecretStoreProvider{
+				Webhook: &esv1.WebhookProvider{
 					URL:  url + args.URL,
 					Body: args.Body,
 					Headers: map[string]string{
-						"Content-Type": "application.json",
-						"X-SecretKey":  "{{ .remoteRef.key }}",
+						"Content-Type":           "application.json",
+						"X-SecretKey":            "{{ .remoteRef.key }}",
+						"X-Kubernetes-Namespace": "{{ .remoteRef.namespace }}",
 					},
-					Result: esv1beta1.WebhookResult{
+					Result: esv1.WebhookResult{
 						JSONPath: args.JSONPath,
 					},
 				},

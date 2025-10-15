@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,7 +30,7 @@ import (
 	"k8s.io/utils/ptr"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 	"github.com/external-secrets/external-secrets/pkg/provider/vault/fake"
 )
@@ -64,7 +66,7 @@ func TestSetAuthNamespace(t *testing.T) {
 	}
 
 	type args struct {
-		store    *esv1beta1.SecretStore
+		store    *esv1.SecretStore
 		expected result
 	}
 	cases := map[string]struct {
@@ -81,7 +83,7 @@ func TestSetAuthNamespace(t *testing.T) {
 		"StoreWithNamespace": {
 			reason: "use the team namespace throughout",
 			args: args{
-				store: func(store *esv1beta1.SecretStore) *esv1beta1.SecretStore {
+				store: func(store *esv1.SecretStore) *esv1.SecretStore {
 					s := store.DeepCopy()
 					s.Spec.Provider.Vault.Namespace = ptr.To(teamNS)
 					return s
@@ -92,7 +94,7 @@ func TestSetAuthNamespace(t *testing.T) {
 		"StoreWithAuthNamespace": {
 			reason: "switch to the auth namespace during login then revert",
 			args: args{
-				store: func(store *esv1beta1.SecretStore) *esv1beta1.SecretStore {
+				store: func(store *esv1.SecretStore) *esv1.SecretStore {
 					s := store.DeepCopy()
 					s.Spec.Provider.Vault.Auth.Namespace = ptr.To(adminNS)
 					return s
@@ -103,7 +105,7 @@ func TestSetAuthNamespace(t *testing.T) {
 		"StoreWithSameNamespace": {
 			reason: "the admin namespace throughout",
 			args: args{
-				store: func(store *esv1beta1.SecretStore) *esv1beta1.SecretStore {
+				store: func(store *esv1.SecretStore) *esv1.SecretStore {
 					s := store.DeepCopy()
 					s.Spec.Provider.Vault.Namespace = ptr.To(adminNS)
 					s.Spec.Provider.Vault.Auth.Namespace = ptr.To(adminNS)
@@ -115,7 +117,7 @@ func TestSetAuthNamespace(t *testing.T) {
 		"StoreWithDistinctNamespace": {
 			reason: "switch from team namespace, to admin, then back",
 			args: args{
-				store: func(store *esv1beta1.SecretStore) *esv1beta1.SecretStore {
+				store: func(store *esv1.SecretStore) *esv1.SecretStore {
 					s := store.DeepCopy()
 					s.Spec.Provider.Vault.Namespace = ptr.To(teamNS)
 					s.Spec.Provider.Vault.Auth.Namespace = ptr.To(adminNS)
@@ -137,7 +139,7 @@ func TestSetAuthNamespace(t *testing.T) {
 				t.Error(err.Error())
 			}
 
-			client, err := getVaultClient(prov, tc.args.store, cfg)
+			client, err := getVaultClient(prov, tc.args.store, cfg, "default")
 			if err != nil {
 				t.Errorf("vault.useAuthNamespace: failed to create client: %s", err.Error())
 			}
@@ -197,7 +199,7 @@ func TestCheckTokenErrors(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			token := fake.Token{
-				LookupSelfWithContextFn: func(ctx context.Context) (*vault.Secret, error) {
+				LookupSelfWithContextFn: func(_ context.Context) (*vault.Secret, error) {
 					return tc.secret, tc.err
 				},
 			}
@@ -265,7 +267,7 @@ func TestCheckTokenTtl(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			token := fake.Token{
-				LookupSelfWithContextFn: func(ctx context.Context) (*vault.Secret, error) {
+				LookupSelfWithContextFn: func(_ context.Context) (*vault.Secret, error) {
 					return tc.secret, nil
 				},
 			}

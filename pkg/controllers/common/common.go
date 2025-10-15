@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package common
+// Package ctrlcommon provides shared utility functions for controllers
+package ctrlcommon
 
 import (
 	"context"
@@ -28,13 +31,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 )
 
 // BuildManagedSecretClient creates a new client that only sees secrets with the "managed" label.
 func BuildManagedSecretClient(mgr ctrl.Manager, namespace string) (client.Client, error) {
 	// secrets we manage will have the `reconcile.external-secrets.io/managed=true` label
-	managedLabelReq, _ := labels.NewRequirement(esv1beta1.LabelManaged, selection.Equals, []string{esv1beta1.LabelManagedValue})
+	managedLabelReq, _ := labels.NewRequirement(esv1.LabelManaged, selection.Equals, []string{esv1.LabelManagedValue})
 	managedLabelSelector := labels.NewSelector().Add(*managedLabelReq)
 
 	// create a new cache with a label selector for managed secrets

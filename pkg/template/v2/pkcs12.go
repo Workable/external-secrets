@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -118,7 +120,7 @@ func pemToPkcs12Pass(cert, key, pass string) (string, error) {
 		return "", err
 	}
 
-	return certsToPkcs12(parsedCert, key, nil, pass)
+	return certsKeyToPkcs12(parsedCert, key, nil, pass)
 }
 
 func fullPemToPkcs12(cert, key string) (string, error) {
@@ -133,23 +135,15 @@ func fullPemToPkcs12Pass(cert, key, pass string) (string, error) {
 		return "", err
 	}
 
-	caCerts := make([]*x509.Certificate, 0)
-	for len(rest) > 0 {
-		caPem, restBytes := pem.Decode(rest)
-		rest = restBytes
-
-		caCert, err := x509.ParseCertificate(caPem.Bytes)
-		if err != nil {
-			return "", err
-		}
-
-		caCerts = append(caCerts, caCert)
+	caCerts, err := parseCaCerts(rest)
+	if err != nil {
+		return "", err
 	}
 
-	return certsToPkcs12(parsedCert, key, caCerts, pass)
+	return certsKeyToPkcs12(parsedCert, key, caCerts, pass)
 }
 
-func certsToPkcs12(cert *x509.Certificate, key string, caCerts []*x509.Certificate, password string) (string, error) {
+func certsKeyToPkcs12(cert *x509.Certificate, key string, caCerts []*x509.Certificate, password string) (string, error) {
 	keyPem, _ := pem.Decode([]byte(key))
 	parsedKey, err := parsePrivateKey(keyPem.Bytes)
 	if err != nil {
@@ -162,4 +156,40 @@ func certsToPkcs12(cert *x509.Certificate, key string, caCerts []*x509.Certifica
 	}
 
 	return base64.StdEncoding.EncodeToString(pfx), nil
+}
+
+func pemTruststoreToPKCS12(cert string) (string, error) {
+	return pemTruststoreToPKCS12Pass(cert, "")
+}
+
+func pemTruststoreToPKCS12Pass(cert, password string) (string, error) {
+	caCerts, err := parseCaCerts([]byte(cert))
+	if err != nil {
+		return "", err
+	}
+
+	pfx, err := gopkcs12.Modern.EncodeTrustStore(caCerts, password)
+	if err != nil {
+		return "", err
+	}
+
+	return base64.StdEncoding.EncodeToString(pfx), nil
+}
+
+func parseCaCerts(certs []byte) ([]*x509.Certificate, error) {
+	caCerts := make([]*x509.Certificate, 0)
+	rest := certs
+	for len(rest) > 0 {
+		caPem, restBytes := pem.Decode(rest)
+		rest = restBytes
+
+		caCert, err := x509.ParseCertificate(caPem.Bytes)
+		if err != nil {
+			return nil, err
+		}
+
+		caCerts = append(caCerts, caCert)
+	}
+
+	return caCerts, nil
 }

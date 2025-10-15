@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package bitwarden implements a secret manager provider for Bitwarden.
 package bitwarden
 
 import (
@@ -25,7 +28,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 )
 
 // Defined Header Keys.
@@ -37,6 +40,7 @@ const (
 	restAPIURL = "/rest/api/1/secret"
 )
 
+// SecretResponse represents a response from the Bitwarden API containing secret details.
 type SecretResponse struct {
 	CreationDate   string  `json:"creationDate"`
 	ID             string  `json:"id"`
@@ -46,37 +50,45 @@ type SecretResponse struct {
 	ProjectID      *string `json:"projectId,omitempty"`
 	RevisionDate   string  `json:"revisionDate"`
 	Value          string  `json:"value"`
+	// fix ProjectIDS -> ProjectIDs
+	ProjectIDs []string `json:"projectIds,omitempty"`
 }
 
+// SecretsDeleteResponse represents the response when deleting multiple secrets.
 type SecretsDeleteResponse struct {
 	Data []SecretDeleteResponse `json:"data"`
 }
 
+// SecretDeleteResponse represents the response for a single secret deletion.
 type SecretDeleteResponse struct {
 	Error *string `json:"error,omitempty"`
 	ID    string  `json:"id"`
 }
 
+// SecretIdentifiersResponse represents the response when listing secret identifiers.
 type SecretIdentifiersResponse struct {
 	Data []SecretIdentifierResponse `json:"data"`
 }
 
+// SecretIdentifierResponse represents a single secret identifier in a list response.
 type SecretIdentifierResponse struct {
 	ID             string `json:"id"`
 	Key            string `json:"key"`
 	OrganizationID string `json:"organizationId"`
 }
 
+// SecretCreateRequest represents the request to create a new secret.
 type SecretCreateRequest struct {
 	Key  string `json:"key"`
 	Note string `json:"note"`
 	// Organization where the secret will be created
 	OrganizationID string `json:"organizationId"`
 	// IDs of the projects that this secret will belong to
-	ProjectIDS []string `json:"projectIds,omitempty"`
+	ProjectIDs []string `json:"projectIds,omitempty"` // Changed from ProjectIDS
 	Value      string   `json:"value"`
 }
 
+// SecretPutRequest represents the request to update an existing secret.
 type SecretPutRequest struct {
 	ID   string `json:"id"`
 	Key  string `json:"key"`
@@ -84,7 +96,7 @@ type SecretPutRequest struct {
 	// Organization where the secret will be created
 	OrganizationID string `json:"organizationId"`
 	// IDs of the projects that this secret will belong to
-	ProjectIDS []string `json:"projectIds,omitempty"`
+	ProjectIDs []string `json:"projectIds,omitempty"` // Changed from ProjectIDS
 	Value      string   `json:"value"`
 }
 
@@ -107,7 +119,8 @@ type SdkClient struct {
 	client *http.Client
 }
 
-func NewSdkClient(ctx context.Context, c client.Client, storeKind, namespace string, provider *v1beta1.BitwardenSecretsManagerProvider, token string) (*SdkClient, error) {
+// NewSdkClient creates a new Bitwarden SDK client instance.
+func NewSdkClient(ctx context.Context, c client.Client, storeKind, namespace string, provider *esv1.BitwardenSecretsManagerProvider, token string) (*SdkClient, error) {
 	httpsClient, err := newHTTPSClient(ctx, c, storeKind, namespace, provider)
 	if err != nil {
 		return nil, fmt.Errorf("error creating https client: %w", err)
@@ -122,6 +135,7 @@ func NewSdkClient(ctx context.Context, c client.Client, storeKind, namespace str
 	}, nil
 }
 
+// GetSecret retrieves a secret from Bitwarden by its ID.
 func (s *SdkClient) GetSecret(ctx context.Context, id string) (*SecretResponse, error) {
 	body := struct {
 		ID string `json:"id"`
@@ -142,6 +156,7 @@ func (s *SdkClient) GetSecret(ctx context.Context, id string) (*SecretResponse, 
 	return secretResp, nil
 }
 
+// DeleteSecret deletes secrets from Bitwarden by their IDs.
 func (s *SdkClient) DeleteSecret(ctx context.Context, ids []string) (*SecretsDeleteResponse, error) {
 	body := struct {
 		IDs []string `json:"ids"`
@@ -162,6 +177,7 @@ func (s *SdkClient) DeleteSecret(ctx context.Context, ids []string) (*SecretsDel
 	return secretResp, nil
 }
 
+// CreateSecret creates a new secret in Bitwarden.
 func (s *SdkClient) CreateSecret(ctx context.Context, createReq SecretCreateRequest) (*SecretResponse, error) {
 	secretResp := &SecretResponse{}
 	if err := s.performHTTPRequestOperation(ctx, params{
@@ -176,6 +192,7 @@ func (s *SdkClient) CreateSecret(ctx context.Context, createReq SecretCreateRequ
 	return secretResp, nil
 }
 
+// UpdateSecret updates an existing secret in Bitwarden.
 func (s *SdkClient) UpdateSecret(ctx context.Context, putReq SecretPutRequest) (*SecretResponse, error) {
 	secretResp := &SecretResponse{}
 	if err := s.performHTTPRequestOperation(ctx, params{
@@ -190,6 +207,7 @@ func (s *SdkClient) UpdateSecret(ctx context.Context, putReq SecretPutRequest) (
 	return secretResp, nil
 }
 
+// ListSecrets retrieves all secrets from a Bitwarden organization.
 func (s *SdkClient) ListSecrets(ctx context.Context, organizationID string) (*SecretIdentifiersResponse, error) {
 	body := struct {
 		ID string `json:"organizationID"`
@@ -244,7 +262,9 @@ func (s *SdkClient) performHTTPRequestOperation(ctx context.Context, params para
 	if err != nil {
 		return fmt.Errorf("failed to do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		content, _ := io.ReadAll(resp.Body)

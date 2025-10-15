@@ -29,28 +29,36 @@ on:
         required: true
         type: string
     secrets:
-      GHCR_USERNAME:
-        required: true
-      GHCR_TOKEN:
-        required: true
+      IS_FORK:
+        required: false
 
 env:
   IMAGE_NAME: ${{ inputs.image-name }}
   TAG_SUFFIX: ${{ inputs.tag-suffix }}
   ARCH: ${{ inputs.build-arch }}
   DOCKERFILE: ${{ inputs.dockerfile }}
-  IS_FORK: ${{ secrets.GHCR_USERNAME == '' && 'true' || 'false' }}
+  IS_FORK: ${{ secrets.IS_FORK }}
+
+permissions:
+  contents: read
 
 jobs:
   build-publish:
     name: Build and Publish
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     outputs:
       image-tag: ${{ steps.container_info.outputs.image-tag }}
     steps:
+      - uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
+        with:
+          egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ inputs.ref }}
 
@@ -60,13 +68,13 @@ jobs:
           platforms: all
 
       - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
         with:
           version: 'v0.4.2'
           install: true
 
       - name: Setup Go
-        uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5.3.0
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         id: setup-go
         with:
           go-version-file: "go.mod"
@@ -80,12 +88,12 @@ jobs:
         run: git fetch --prune --unshallow
 
       - name: Login to Docker
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
-        if: env.IS_FORK == 'false'
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        if: env.IS_FORK != ''
         with:
           registry: ghcr.io
-          username: ${{ secrets.GHCR_USERNAME }}
-          password: ${{ secrets.GHCR_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
 
       - name: Get docker image tag
         id: container_info
@@ -96,8 +104,8 @@ jobs:
           # rebuild-image
           if [ "${{ inputs.image-tag }}" != "" ]; then
             TAG="${{ inputs.image-tag }}${{ inputs.tag-suffix }}"
-          # main / release-x.y
-          elif [[ "$GITHUB_REF" == "refs/heads/main" || "$GITHUB_REF" =~ refs/heads/release-.*  ]]; then
+          # main
+          elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
             TAG=${GITHUB_REF#refs/heads/}${{ inputs.tag-suffix }}
           # Pull Request
           else
@@ -106,7 +114,7 @@ jobs:
           echo "image-tag=${TAG}" >> $GITHUB_OUTPUT
 
       - name: Build & Publish Artifacts
-        if: env.IS_FORK == 'false'
+        if: env.IS_FORK != ''
         shell: bash
         env:
           IMAGE_TAG: ${{ steps.container_info.outputs.image-tag }}
@@ -117,7 +125,7 @@ jobs:
         run: make docker.build
 
       - name: Build & Publish Artifacts fork
-        if: env.IS_FORK == 'true'
+        if: env.IS_FORK == ''
         shell: bash
         env:
           IMAGE_TAG: ${{ steps.container_info.outputs.image-tag }}
@@ -126,7 +134,7 @@ jobs:
         run: make docker.build
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # master
+        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # master
         with:
           image-ref: ${{ inputs.image-name }}:${{ steps.container_info.outputs.image-tag }}
           format: 'table'
@@ -138,15 +146,19 @@ jobs:
   sign:
     runs-on: ubuntu-latest
     needs: build-publish
+    permissions:
+      contents: read
+      id-token: write #for keyless sign
+      packages: write #to update packages with added SBOMs.
     steps:
+      - uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
+        with:
+          egress-policy: audit
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Sign image
-        if: env.IS_FORK == 'false'
+        if: env.IS_FORK != ''
         uses: ./.github/actions/sign
         with:
           image-name: ${{ inputs.image-name }}
           image-tag: ${{ needs.build-publish.outputs.image-tag }}
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

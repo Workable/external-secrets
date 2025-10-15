@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,16 +23,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/sts"
-	"github.com/aws/aws-sdk-go/service/sts/stsiface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
+	ststypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
 	v1 "k8s.io/api/core/v1"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/external-secrets/external-secrets/pkg/utils"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
 )
 
 func TestGenerate(t *testing.T) {
@@ -39,7 +41,7 @@ func TestGenerate(t *testing.T) {
 		jsonSpec  *apiextensions.JSON
 		kube      client.Client
 		namespace string
-		tokenFunc func(*sts.GetSessionTokenInput) (*sts.GetSessionTokenOutput, error)
+		tokenFunc func(context.Context, *sts.GetSessionTokenInput, ...func(*sts.Options)) (*sts.GetSessionTokenOutput, error)
 	}
 	tests := []struct {
 		name    string
@@ -51,6 +53,7 @@ func TestGenerate(t *testing.T) {
 		{
 			name: "nil spec",
 			args: args{
+				ctx:      context.Background(),
 				jsonSpec: nil,
 			},
 			wantErr: true,
@@ -58,7 +61,8 @@ func TestGenerate(t *testing.T) {
 		{
 			name: "invalid json",
 			args: args{
-				tokenFunc: func(*sts.GetSessionTokenInput) (*sts.GetSessionTokenOutput, error) {
+				ctx: context.Background(),
+				tokenFunc: func(ctx context.Context, input *sts.GetSessionTokenInput, optFns ...func(*sts.Options)) (*sts.GetSessionTokenOutput, error) {
 					return nil, errors.New("boom")
 				},
 				jsonSpec: &apiextensions.JSON{
@@ -70,6 +74,7 @@ func TestGenerate(t *testing.T) {
 		{
 			name: "full spec",
 			args: args{
+				ctx:       context.Background(),
 				namespace: "foobar",
 				kube: clientfake.NewClientBuilder().WithObjects(&v1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
@@ -81,14 +86,14 @@ func TestGenerate(t *testing.T) {
 						"access-secret": []byte("bar"),
 					},
 				}).Build(),
-				tokenFunc: func(*sts.GetSessionTokenInput) (*sts.GetSessionTokenOutput, error) {
+				tokenFunc: func(ctx context.Context, input *sts.GetSessionTokenInput, optFns ...func(*sts.Options)) (*sts.GetSessionTokenOutput, error) {
 					t := time.Unix(1234, 0)
 					return &sts.GetSessionTokenOutput{
-						Credentials: &sts.Credentials{
-							AccessKeyId:     utils.Ptr("access-key-id"),
-							Expiration:      utils.Ptr(t),
-							SecretAccessKey: utils.Ptr("secret-access-key"),
-							SessionToken:    utils.Ptr("session-token"),
+						Credentials: &ststypes.Credentials{
+							AccessKeyId:     esutils.Ptr("access-key-id"),
+							Expiration:      esutils.Ptr(t),
+							SecretAccessKey: esutils.Ptr("secret-access-key"),
+							SessionToken:    esutils.Ptr("session-token"),
 						},
 					}, nil
 				},
@@ -124,7 +129,7 @@ spec:
 				tt.args.jsonSpec,
 				tt.args.kube,
 				tt.args.namespace,
-				func(aws *session.Session) stsiface.STSAPI {
+				func(cfg *aws.Config) stsAPI {
 					return &FakeSTS{
 						getSessionToken: tt.args.tokenFunc,
 					}
@@ -142,10 +147,9 @@ spec:
 }
 
 type FakeSTS struct {
-	stsiface.STSAPI
-	getSessionToken func(*sts.GetSessionTokenInput) (*sts.GetSessionTokenOutput, error)
+	getSessionToken func(context.Context, *sts.GetSessionTokenInput, ...func(*sts.Options)) (*sts.GetSessionTokenOutput, error)
 }
 
-func (e *FakeSTS) GetSessionToken(in *sts.GetSessionTokenInput) (*sts.GetSessionTokenOutput, error) {
-	return e.getSessionToken(in)
+func (e *FakeSTS) GetSessionToken(ctx context.Context, params *sts.GetSessionTokenInput, optFns ...func(*sts.Options)) (*sts.GetSessionTokenOutput, error) {
+	return e.getSessionToken(ctx, params, optFns...)
 }

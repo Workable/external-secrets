@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,10 +22,12 @@ import (
 	tpl "text/template"
 
 	"github.com/Masterminds/sprig/v3"
+	"github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
-	esapi "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esapi "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	"github.com/external-secrets/external-secrets/pkg/feature"
 )
 
 var tplFuncs = tpl.FuncMap{
@@ -32,10 +36,12 @@ var tplFuncs = tpl.FuncMap{
 	"pkcs12cert":     pkcs12cert,
 	"pkcs12certPass": pkcs12certPass,
 
-	"pemToPkcs12":         pemToPkcs12,
-	"pemToPkcs12Pass":     pemToPkcs12Pass,
-	"fullPemToPkcs12":     fullPemToPkcs12,
-	"fullPemToPkcs12Pass": fullPemToPkcs12Pass,
+	"pemToPkcs12":               pemToPkcs12,
+	"pemToPkcs12Pass":           pemToPkcs12Pass,
+	"fullPemToPkcs12":           fullPemToPkcs12,
+	"fullPemToPkcs12Pass":       fullPemToPkcs12Pass,
+	"pemTruststoreToPKCS12":     pemTruststoreToPKCS12,
+	"pemTruststoreToPKCS12Pass": pemTruststoreToPKCS12Pass,
 
 	"filterPEM":       filterPEM,
 	"filterCertChain": filterCertChain,
@@ -45,9 +51,14 @@ var tplFuncs = tpl.FuncMap{
 
 	"toYaml":   toYAML,
 	"fromYaml": fromYAML,
+
+	"getSecretKey": getSecretKey,
+	"rsaDecrypt":   rsaDecrypt,
 }
 
-// So other templating calls can use the same extra functions.
+var leftDelim, rightDelim string
+
+// FuncMap returns the template function map so other templating calls can use the same extra functions.
 func FuncMap() tpl.FuncMap {
 	return tplFuncs
 }
@@ -71,25 +82,31 @@ func init() {
 	for k, v := range sprigFuncs {
 		tplFuncs[k] = v
 	}
+	fs := pflag.NewFlagSet("template", pflag.ExitOnError)
+	fs.StringVar(&leftDelim, "template-left-delimiter", "{{", "templating left delimiter")
+	fs.StringVar(&rightDelim, "template-right-delimiter", "}}", "templating right delimiter")
+	feature.Register(feature.Feature{
+		Flags: fs,
+	})
 }
 
-func applyToTarget(k, val string, target esapi.TemplateTarget, secret *corev1.Secret) {
+func applyToTarget(k string, val []byte, target esapi.TemplateTarget, secret *corev1.Secret) {
 	switch target {
 	case esapi.TemplateTargetAnnotations:
 		if secret.Annotations == nil {
 			secret.Annotations = make(map[string]string)
 		}
-		secret.Annotations[k] = val
+		secret.Annotations[k] = string(val)
 	case esapi.TemplateTargetLabels:
 		if secret.Labels == nil {
 			secret.Labels = make(map[string]string)
 		}
-		secret.Labels[k] = val
+		secret.Labels[k] = string(val)
 	case esapi.TemplateTargetData:
 		if secret.Data == nil {
 			secret.Data = make(map[string][]byte)
 		}
-		secret.Data[k] = []byte(val)
+		secret.Data[k] = val
 	default:
 	}
 }
@@ -100,7 +117,7 @@ func valueScopeApply(tplMap, data map[string][]byte, target esapi.TemplateTarget
 		if err != nil {
 			return fmt.Errorf(errExecute, k, err)
 		}
-		applyToTarget(k, string(val), target, secret)
+		applyToTarget(k, val, target, secret)
 	}
 	return nil
 }
@@ -116,7 +133,7 @@ func mapScopeApply(tpl string, data map[string][]byte, target esapi.TemplateTarg
 		return fmt.Errorf("could not unmarshal template to 'map[string][]byte': %w", err)
 	}
 	for k, val := range src {
-		applyToTarget(k, val, target, secret)
+		applyToTarget(k, []byte(val), target, secret)
 	}
 	return nil
 }
@@ -154,6 +171,7 @@ func execute(k, val string, data map[string][]byte) ([]byte, error) {
 	t, err := tpl.New(k).
 		Option("missingkey=error").
 		Funcs(tplFuncs).
+		Delims(leftDelim, rightDelim).
 		Parse(val)
 	if err != nil {
 		return nil, fmt.Errorf(errParse, k, err)

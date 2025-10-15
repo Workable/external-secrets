@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,26 +25,31 @@ import (
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"github.com/tidwall/sjson"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
-	"github.com/external-secrets/external-secrets/pkg/utils/metadata"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	"github.com/external-secrets/external-secrets/pkg/esutils/metadata"
 )
 
+// PushSecretMetadataMergePolicy defines how metadata should be merged when pushing secrets.
 type PushSecretMetadataMergePolicy string
 
 const (
+	// PushSecretMetadataMergePolicyReplace indicates that metadata should be replaced entirely.
 	PushSecretMetadataMergePolicyReplace PushSecretMetadataMergePolicy = "Replace"
-	PushSecretMetadataMergePolicyMerge   PushSecretMetadataMergePolicy = "Merge"
+	// PushSecretMetadataMergePolicyMerge indicates that metadata should be merged.
+	PushSecretMetadataMergePolicyMerge PushSecretMetadataMergePolicy = "Merge"
 )
 
+// PushSecretMetadataSpec defines the metadata specification for pushed secrets.
 type PushSecretMetadataSpec struct {
-	Annotations map[string]string             `json:"annotations,omitempty"`
-	Labels      map[string]string             `json:"labels,omitempty"`
-	Topics      []string                      `json:"topics,omitempty"`
-	MergePolicy PushSecretMetadataMergePolicy `json:"mergePolicy,omitempty"`
-	CMEKKeyName string                        `json:"cmekKeyName,omitempty"`
+	Annotations         map[string]string             `json:"annotations,omitempty"`
+	Labels              map[string]string             `json:"labels,omitempty"`
+	Topics              []string                      `json:"topics,omitempty"`
+	MergePolicy         PushSecretMetadataMergePolicy `json:"mergePolicy,omitempty"`
+	CMEKKeyName         string                        `json:"cmekKeyName,omitempty"`
+	ReplicationLocation string                        `json:"replicationLocation,omitempty"`
 }
 
-func newPushSecretBuilder(payload []byte, data esv1beta1.PushSecretData) (pushSecretBuilder, error) {
+func newPushSecretBuilder(payload []byte, data esv1.PushSecretData) (pushSecretBuilder, error) {
 	if data.GetProperty() == "" {
 		return &psBuilder{
 			payload:        payload,
@@ -68,7 +75,7 @@ type pushSecretBuilder interface {
 
 type psBuilder struct {
 	payload        []byte
-	pushSecretData esv1beta1.PushSecretData
+	pushSecretData esv1.PushSecretData
 }
 
 func (b *psBuilder) buildMetadata(_, labels map[string]string, _ []*secretmanagerpb.Topic) (map[string]string, map[string]string, []string, error) {
@@ -115,7 +122,7 @@ func (b *psBuilder) buildData(_ []byte) ([]byte, error) {
 
 type propertyPSBuilder struct {
 	payload        []byte
-	pushSecretData esv1beta1.PushSecretData
+	pushSecretData esv1.PushSecretData
 }
 
 func (b *propertyPSBuilder) buildMetadata(annotations, labels map[string]string, topics []*secretmanagerpb.Topic) (map[string]string, map[string]string, []string, error) {
@@ -143,7 +150,7 @@ func (b *propertyPSBuilder) needUpdate(original []byte) bool {
 		return true
 	}
 
-	val := getDataByProperty(original, b.pushSecretData.GetProperty())
+	val, _ := getDataByProperty(original, b.pushSecretData.GetProperty())
 	return !val.Exists() || val.String() != string(b.payload)
 }
 

@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package certificatemanager implements the Yandex Cloud Certificate Manager provider for External Secrets Operator.
 package certificatemanager
 
 import (
@@ -22,7 +25,7 @@ import (
 	"github.com/yandex-cloud/go-sdk/iamkey"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 	"github.com/external-secrets/external-secrets/pkg/provider/yandex/certificatemanager/client"
 	"github.com/external-secrets/external-secrets/pkg/provider/yandex/common"
@@ -31,15 +34,16 @@ import (
 
 var log = ctrl.Log.WithName("provider").WithName("yandex").WithName("certificatemanager")
 
-func adaptInput(store esv1beta1.GenericStore) (*common.SecretsClientInput, error) {
+func adaptInput(store esv1.GenericStore) (*ydxcommon.SecretsClientInput, error) {
 	storeSpec := store.GetSpec()
 	if storeSpec == nil || storeSpec.Provider == nil || storeSpec.Provider.YandexCertificateManager == nil {
 		return nil, errors.New("received invalid Yandex Certificate Manager SecretStore resource")
 	}
 	storeSpecYandexCertificateManager := storeSpec.Provider.YandexCertificateManager
 
-	if storeSpecYandexCertificateManager.Auth.AuthorizedKey.Name == "" {
-		return nil, errors.New("invalid Yandex Certificate Manager SecretStore resource: missing AuthorizedKey Name")
+	var authorizedKey *esmeta.SecretKeySelector
+	if storeSpecYandexCertificateManager.Auth.AuthorizedKey.Name != "" {
+		authorizedKey = &storeSpecYandexCertificateManager.Auth.AuthorizedKey
 	}
 
 	var caCertificate *esmeta.SecretKeySelector
@@ -47,14 +51,36 @@ func adaptInput(store esv1beta1.GenericStore) (*common.SecretsClientInput, error
 		caCertificate = &storeSpecYandexCertificateManager.CAProvider.Certificate
 	}
 
-	return &common.SecretsClientInput{
-		APIEndpoint:   storeSpecYandexCertificateManager.APIEndpoint,
-		AuthorizedKey: storeSpecYandexCertificateManager.Auth.AuthorizedKey,
-		CACertificate: caCertificate,
+	var resourceKeyType ydxcommon.ResourceKeyType
+	var folderID string
+	policy := storeSpecYandexCertificateManager.FetchingPolicy
+	if policy != nil {
+		switch {
+		case policy.ByName != nil:
+			if policy.ByName.FolderID == "" {
+				return nil, errors.New("folderID is required when fetching policy is 'byName'")
+			}
+			resourceKeyType = ydxcommon.ResourceKeyTypeName
+			folderID = policy.ByName.FolderID
+
+		case policy.ByID != nil:
+			resourceKeyType = ydxcommon.ResourceKeyTypeID
+
+		default:
+			return nil, errors.New("invalid Yandex Certificate Manager SecretStore: requires either 'byName' or 'byID' policy")
+		}
+	}
+
+	return &ydxcommon.SecretsClientInput{
+		APIEndpoint:     storeSpecYandexCertificateManager.APIEndpoint,
+		AuthorizedKey:   authorizedKey,
+		CACertificate:   caCertificate,
+		ResourceKeyType: resourceKeyType,
+		FolderID:        folderID,
 	}, nil
 }
 
-func newSecretGetter(ctx context.Context, apiEndpoint string, authorizedKey *iamkey.Key, caCertificate []byte) (common.SecretGetter, error) {
+func newSecretGetter(ctx context.Context, apiEndpoint string, authorizedKey *iamkey.Key, caCertificate []byte) (ydxcommon.SecretGetter, error) {
 	grpcClient, err := client.NewGrpcCertificateManagerClient(ctx, apiEndpoint, authorizedKey, caCertificate)
 	if err != nil {
 		return nil, err
@@ -63,19 +89,20 @@ func newSecretGetter(ctx context.Context, apiEndpoint string, authorizedKey *iam
 }
 
 func init() {
-	provider := common.InitYandexCloudProvider(
+	provider := ydxcommon.InitYandexCloudProvider(
 		log,
 		clock.NewRealClock(),
 		adaptInput,
 		newSecretGetter,
-		common.NewIamToken,
+		ydxcommon.NewIamToken,
 		time.Hour,
 	)
 
-	esv1beta1.Register(
+	esv1.Register(
 		provider,
-		&esv1beta1.SecretStoreProvider{
-			YandexCertificateManager: &esv1beta1.YandexCertificateManagerProvider{},
+		&esv1.SecretStoreProvider{
+			YandexCertificateManager: &esv1.YandexCertificateManagerProvider{},
 		},
+		esv1.MaintenanceStatusMaintained,
 	)
 }

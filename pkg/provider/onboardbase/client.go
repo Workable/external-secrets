@@ -1,17 +1,20 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or impliec.
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package onboardbase implements a client for interacting with Onboardbase secrets management service.
 package onboardbase
 
 import (
@@ -28,10 +31,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
 	"github.com/external-secrets/external-secrets/pkg/find"
-	onboardbaseClient "github.com/external-secrets/external-secrets/pkg/provider/onboardbase/client"
-	"github.com/external-secrets/external-secrets/pkg/utils"
+	obclient "github.com/external-secrets/external-secrets/pkg/provider/onboardbase/client"
 )
 
 const (
@@ -46,6 +49,7 @@ const (
 	errSecretKeyFmt                                         = "cannot find property %s in secret data for key: %q"
 )
 
+// Client implements the Onboardbase secrets client.
 type Client struct {
 	onboardbase         SecretsClientInterface
 	onboardbaseAPIKey   string
@@ -54,7 +58,7 @@ type Client struct {
 	environment         string
 
 	kube      kclient.Client
-	store     *esv1beta1.OnboardbaseProvider
+	store     *esv1.OnboardbaseProvider
 	namespace string
 	storeKind string
 }
@@ -63,9 +67,9 @@ type Client struct {
 type SecretsClientInterface interface {
 	BaseURL() *url.URL
 	Authenticate() error
-	GetSecret(request onboardbaseClient.SecretRequest) (*onboardbaseClient.SecretResponse, error)
-	DeleteSecret(request onboardbaseClient.SecretRequest) error
-	GetSecrets(request onboardbaseClient.SecretsRequest) (*onboardbaseClient.SecretsResponse, error)
+	GetSecret(request obclient.SecretRequest) (*obclient.SecretResponse, error)
+	DeleteSecret(request obclient.SecretRequest) error
+	GetSecrets(request obclient.SecretsRequest) (*obclient.SecretsResponse, error)
 }
 
 func (c *Client) setAuth(ctx context.Context) error {
@@ -79,7 +83,7 @@ func (c *Client) setAuth(ctx context.Context) error {
 		Namespace: c.namespace,
 	}
 	// only ClusterStore is allowed to set namespace (and then it's required)
-	if c.storeKind == esv1beta1.ClusterSecretStoreKind {
+	if c.storeKind == esv1.ClusterSecretStoreKind {
 		if c.store.Auth.OnboardbaseAPIKeyRef.Namespace == nil {
 			return errors.New(errInvalidClusterStoreMissingOnboardbaseAPIKeyNamespace)
 		}
@@ -107,38 +111,43 @@ func (c *Client) setAuth(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) Validate() (esv1beta1.ValidationResult, error) {
+// Validate performs validation of the Onboardbase client configuration.
+func (c *Client) Validate() (esv1.ValidationResult, error) {
 	timeout := 15 * time.Second
 	clientURL := c.onboardbase.BaseURL().String()
 
-	if err := utils.NetworkValidate(clientURL, timeout); err != nil {
-		return esv1beta1.ValidationResultError, err
+	if err := esutils.NetworkValidate(clientURL, timeout); err != nil {
+		return esv1.ValidationResultError, err
 	}
 
 	if err := c.onboardbase.Authenticate(); err != nil {
-		return esv1beta1.ValidationResultError, err
+		return esv1.ValidationResultError, err
 	}
 
-	return esv1beta1.ValidationResultReady, nil
+	return esv1.ValidationResultReady, nil
 }
 
-func (c *Client) DeleteSecret(_ context.Context, _ esv1beta1.PushSecretRemoteRef) error {
+// DeleteSecret removes a secret from Onboardbase.
+func (c *Client) DeleteSecret(_ context.Context, _ esv1.PushSecretRemoteRef) error {
 	// not implemented
 	return nil
 }
 
-func (c *Client) SecretExists(_ context.Context, _ esv1beta1.PushSecretRemoteRef) (bool, error) {
+// SecretExists checks if a secret exists in Onboardbase.
+func (c *Client) SecretExists(_ context.Context, _ esv1.PushSecretRemoteRef) (bool, error) {
 	// not implemented
 	return false, nil
 }
 
-func (c *Client) PushSecret(_ context.Context, _ *corev1.Secret, _ esv1beta1.PushSecretData) error {
+// PushSecret creates or updates a secret in Onboardbase.
+func (c *Client) PushSecret(_ context.Context, _ *corev1.Secret, _ esv1.PushSecretData) error {
 	// not implemented
 	return nil
 }
 
-func (c *Client) GetSecret(_ context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) ([]byte, error) {
-	request := onboardbaseClient.SecretRequest{
+// GetSecret retrieves a secret from Onboardbase by its reference.
+func (c *Client) GetSecret(_ context.Context, ref esv1.ExternalSecretDataRemoteRef) ([]byte, error) {
+	request := obclient.SecretRequest{
 		Project:     c.project,
 		Environment: c.environment,
 		Name:        ref.Key,
@@ -162,7 +171,8 @@ func (c *Client) GetSecret(_ context.Context, ref esv1beta1.ExternalSecretDataRe
 	return []byte(value), nil
 }
 
-func (c *Client) GetSecretMap(ctx context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
+// GetSecretMap retrieves a secret from Onboardbase and returns it as a map.
+func (c *Client) GetSecretMap(ctx context.Context, ref esv1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
 	data, err := c.GetSecret(ctx, ref)
 	if err != nil {
 		return nil, err
@@ -187,7 +197,8 @@ func (c *Client) GetSecretMap(ctx context.Context, ref esv1beta1.ExternalSecretD
 	return secretData, nil
 }
 
-func (c *Client) GetAllSecrets(ctx context.Context, ref esv1beta1.ExternalSecretFind) (map[string][]byte, error) {
+// GetAllSecrets retrieves all secrets from Onboardbase that match the given criteria.
+func (c *Client) GetAllSecrets(ctx context.Context, ref esv1.ExternalSecretFind) (map[string][]byte, error) {
 	if len(ref.Tags) > 0 {
 		return nil, errors.New("find by tags not supported")
 	}
@@ -222,12 +233,13 @@ func (c *Client) GetAllSecrets(ctx context.Context, ref esv1beta1.ExternalSecret
 	return selected, nil
 }
 
+// Close implements cleanup operations for the Onboardbase client.
 func (c *Client) Close(_ context.Context) error {
 	return nil
 }
 
 func (c *Client) getSecrets(_ context.Context) (map[string][]byte, error) {
-	request := onboardbaseClient.SecretsRequest{
+	request := obclient.SecretsRequest{
 		Project:     c.project,
 		Environment: c.environment,
 	}
@@ -240,7 +252,7 @@ func (c *Client) getSecrets(_ context.Context) (map[string][]byte, error) {
 	return externalSecretsFormat(response.Secrets), nil
 }
 
-func externalSecretsFormat(secrets onboardbaseClient.Secrets) map[string][]byte {
+func externalSecretsFormat(secrets obclient.Secrets) map[string][]byte {
 	converted := make(map[string][]byte, len(secrets))
 	for key, value := range secrets {
 		converted[key] = []byte(value)

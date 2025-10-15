@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package crds implements controllers for handling Custom Resource Definitions.
 package crds
 
 import (
@@ -33,9 +36,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/external-secrets/external-secrets/pkg/esutils"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apiext "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -50,13 +55,13 @@ const (
 	caCertName           = "ca.crt"
 	caKeyName            = "ca.key"
 	certValidityDuration = 10 * 365 * 24 * time.Hour
-	LookaheadInterval    = 90 * 24 * time.Hour
+	// LookaheadInterval defines the interval to look ahead for certificate expiration.
+	LookaheadInterval = 90 * 24 * time.Hour
 
-	errResNotReady       = "resource not ready: %s"
-	errSubsetsNotReady   = "subsets not ready"
-	errAddressesNotReady = "addresses not ready"
+	errResNotReady = "resource not ready: %s"
 )
 
+// Reconciler implements a reconciliation handler for CRD controllers.
 type Reconciler struct {
 	client.Client
 	Log             logr.Logger
@@ -81,6 +86,7 @@ type Reconciler struct {
 	readyStatusMap   map[string]bool
 }
 
+// Opts defines configuration options for the CRD controller.
 type Opts struct {
 	SvcName         string
 	SvcNamespace    string
@@ -89,6 +95,7 @@ type Opts struct {
 	Resources       []string
 }
 
+// New returns a new CRD controller instance.
 func New(k8sClient client.Client, scheme *runtime.Scheme, leaderChan <-chan struct{}, logger logr.Logger,
 	interval time.Duration, opts Opts) *Reconciler {
 	return &Reconciler{
@@ -109,6 +116,7 @@ func New(k8sClient client.Client, scheme *runtime.Scheme, leaderChan <-chan stru
 	}
 }
 
+// CertInfo holds certificate data information.
 type CertInfo struct {
 	CertDir  string
 	CertName string
@@ -116,10 +124,11 @@ type CertInfo struct {
 	CAName   string
 }
 
+// Reconcile handles the reconciliation logic for CRDs.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("CustomResourceDefinition", req.NamespacedName)
 	if slices.Contains(r.CrdResources, req.NamespacedName.Name) {
-		err := r.updateCRD(ctx, req)
+		err := r.updateCRD(logr.NewContext(ctx, log), req)
 		if err != nil {
 			log.Error(err, "failed to inject conversion webhook")
 			r.readyStatusMapMu.Lock()
@@ -150,7 +159,7 @@ func (r *Reconciler) ReadyCheck(_ *http.Request) error {
 	if err := r.checkCRDs(); err != nil {
 		return err
 	}
-	return r.checkEndpoints()
+	return esutils.CheckEndpointSlicesReady(context.TODO(), r.Client, r.SvcName, r.SvcNamespace)
 }
 
 func (r *Reconciler) checkCRDs() error {
@@ -165,24 +174,7 @@ func (r *Reconciler) checkCRDs() error {
 	return nil
 }
 
-func (r *Reconciler) checkEndpoints() error {
-	var eps corev1.Endpoints
-	err := r.Get(context.TODO(), types.NamespacedName{
-		Name:      r.SvcName,
-		Namespace: r.SvcNamespace,
-	}, &eps)
-	if err != nil {
-		return err
-	}
-	if len(eps.Subsets) == 0 {
-		return errors.New(errSubsetsNotReady)
-	}
-	if len(eps.Subsets[0].Addresses) == 0 {
-		return errors.New(errAddressesNotReady)
-	}
-	return nil
-}
-
+// SetupWithManager sets up the controller with the Manager.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, opts controller.Options) error {
 	r.recorder = mgr.GetEventRecorderFor("custom-resource-definition")
 	return ctrl.NewControllerManagedBy(mgr).
@@ -192,6 +184,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager, opts controller.Options)
 }
 
 func (r *Reconciler) updateCRD(ctx context.Context, req ctrl.Request) error {
+	log := logr.FromContextOrDiscard(ctx)
 	secret := corev1.Secret{}
 	secretName := types.NamespacedName{
 		Name:      r.SecretName,
@@ -205,6 +198,7 @@ func (r *Reconciler) updateCRD(ctx context.Context, req ctrl.Request) error {
 	if err := r.Get(ctx, req.NamespacedName, &updatedResource); err != nil {
 		return err
 	}
+	before := updatedResource.DeepCopyObject()
 
 	svc := types.NamespacedName{
 		Name:      r.SvcName,
@@ -227,7 +221,15 @@ func (r *Reconciler) updateCRD(ctx context.Context, req ctrl.Request) error {
 			return err
 		}
 	}
-	return r.Update(ctx, &updatedResource)
+	if !equality.Semantic.DeepEqual(before, &updatedResource) {
+		if err := r.Update(ctx, &updatedResource); err != nil {
+			return err
+		}
+		log.Info("updated crd")
+		return nil
+	}
+	log.V(1).Info("crd is unchanged")
+	return nil
 }
 
 func injectService(crd *apiext.CustomResourceDefinition, svc types.NamespacedName) error {
@@ -260,6 +262,7 @@ func injectCert(crd *apiext.CustomResourceDefinition, certPem []byte) error {
 	return nil
 }
 
+// KeyPairArtifacts stores certificate key pair data.
 type KeyPairArtifacts struct {
 	Cert    *x509.Certificate
 	Key     *rsa.PrivateKey
@@ -267,6 +270,7 @@ type KeyPairArtifacts struct {
 	KeyPEM  []byte
 }
 
+// populateSecret populates the secret with the given certificate and key data.
 func populateSecret(cert, key []byte, caArtifacts *KeyPairArtifacts, secret *corev1.Secret) {
 	if secret.Data == nil {
 		secret.Data = make(map[string][]byte)
@@ -277,6 +281,7 @@ func populateSecret(cert, key []byte, caArtifacts *KeyPairArtifacts, secret *cor
 	secret.Data[keyName] = key
 }
 
+// ValidCert checks if the provided certificate is valid for the given DNS name.
 func ValidCert(caCert, cert, key []byte, dnsName string, at time.Time) (bool, error) {
 	if len(caCert) == 0 || len(cert) == 0 || len(key) == 0 {
 		return false, errors.New("empty cert")
@@ -420,6 +425,7 @@ func buildArtifactsFromSecret(secret *corev1.Secret) (*KeyPairArtifacts, error) 
 	}, nil
 }
 
+// CreateCACert creates a new CA certificate.
 func (r *Reconciler) CreateCACert(begin, end time.Time) (*KeyPairArtifacts, error) {
 	templ := &x509.Certificate{
 		SerialNumber: big.NewInt(0),
@@ -456,6 +462,7 @@ func (r *Reconciler) CreateCACert(begin, end time.Time) (*KeyPairArtifacts, erro
 	return &KeyPairArtifacts{Cert: cert, Key: key, CertPEM: certPEM, KeyPEM: keyPEM}, nil
 }
 
+// CreateCAChain creates a certificate chain using the provided CA.
 func (r *Reconciler) CreateCAChain(ca *KeyPairArtifacts, begin, end time.Time) (*KeyPairArtifacts, error) {
 	templ := &x509.Certificate{
 		SerialNumber: big.NewInt(2),
@@ -492,6 +499,7 @@ func (r *Reconciler) CreateCAChain(ca *KeyPairArtifacts, begin, end time.Time) (
 	return &KeyPairArtifacts{Cert: cert, Key: key, CertPEM: certPEM, KeyPEM: keyPEM}, nil
 }
 
+// CreateCertPEM creates a new certificate in PEM format.
 func (r *Reconciler) CreateCertPEM(ca *KeyPairArtifacts, begin, end time.Time) ([]byte, []byte, error) {
 	templ := &x509.Certificate{
 		SerialNumber: big.NewInt(1),

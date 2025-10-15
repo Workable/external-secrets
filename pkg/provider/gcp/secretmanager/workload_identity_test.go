@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,6 +19,8 @@ package secretmanager
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -33,7 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 )
 
@@ -45,7 +49,8 @@ type workloadIdentityTest struct {
 	genAccessToken func(context.Context, *credentialspb.GenerateAccessTokenRequest, ...gax.CallOption) (*credentialspb.GenerateAccessTokenResponse, error)
 	genIDBindToken func(ctx context.Context, client *http.Client, k8sToken, idPool, idProvider string) (*oauth2.Token, error)
 	genSAToken     func(c context.Context, s1 []string, s2, s3 string) (*authv1.TokenRequest, error)
-	store          esv1beta1.GenericStore
+	instMetadata   map[string]string
+	store          esv1.GenericStore
 	kubeObjects    []client.Object
 }
 
@@ -54,10 +59,10 @@ func TestWorkloadIdentity(t *testing.T) {
 	tbl := []*workloadIdentityTest{
 		composeTestcase(
 			defaultTestCase("should skip when no workload identity is configured: TokenSource and error must be nil"),
-			withStore(&esv1beta1.SecretStore{
-				Spec: esv1beta1.SecretStoreSpec{
-					Provider: &esv1beta1.SecretStoreProvider{
-						GCPSM: &esv1beta1.GCPSMProvider{},
+			withStore(&esv1.SecretStore{
+				Spec: esv1.SecretStoreSpec{
+					Provider: &esv1.SecretStoreProvider{
+						GCPSM: &esv1.GCPSMProvider{},
 					},
 				},
 			}),
@@ -134,22 +139,37 @@ func TestWorkloadIdentity(t *testing.T) {
 				},
 			}),
 		),
+		composeTestcase(
+			defaultTestCase("lookup cluster id from instance metadata"),
+			expTokenSource(),
+			expectToken(defaultGenAccessToken),
+			withStore(
+				composeStore(defaultStore(), withClusterID("", "", "")),
+			),
+			withInstMetadata(map[string]string{
+				"project-id":       "1234",
+				"cluster-location": "example",
+				"cluster-name":     "foobar",
+			}),
+		),
 	}
 
 	for _, row := range tbl {
 		t.Run(row.name, func(t *testing.T) {
 			fakeIam := &fakeIAMClient{generateAccessTokenFunc: row.genAccessToken}
+			fakeMeta := &fakeMetadataClient{metadata: row.instMetadata}
 			fakeIDBGen := &fakeIDBindTokenGen{generateFunc: row.genIDBindToken}
 			fakeSATG := &fakeSATokenGen{GenerateFunc: row.genSAToken}
 			w := &workloadIdentity{
 				iamClient:            fakeIam,
+				metadataClient:       fakeMeta,
 				idBindTokenGenerator: fakeIDBGen,
 				saTokenGenerator:     fakeSATG,
 			}
 			cb := clientfake.NewClientBuilder()
 			cb.WithObjects(row.kubeObjects...)
 			client := cb.Build()
-			isCluster := row.store.GetTypeMeta().Kind == esv1beta1.ClusterSecretStoreKind
+			isCluster := row.store.GetTypeMeta().Kind == esv1.ClusterSecretStoreKind
 			ts, err := w.TokenSource(context.Background(), row.store.GetSpec().Provider.GCPSM.Auth, isCluster, client, "default")
 			// assert err
 			if row.expErr == "" {
@@ -226,7 +246,7 @@ func composeTestcase(tc *workloadIdentityTest, mutators ...testCaseMutator) *wor
 	return tc
 }
 
-func withStore(store esv1beta1.GenericStore) testCaseMutator {
+func withStore(store esv1.GenericStore) testCaseMutator {
 	return func(tc *workloadIdentityTest) {
 		tc.store = store
 	}
@@ -258,6 +278,12 @@ func withK8sResources(objs []client.Object) testCaseMutator {
 	}
 }
 
+func withInstMetadata(metadata map[string]string) testCaseMutator {
+	return func(tc *workloadIdentityTest) {
+		tc.instMetadata = metadata
+	}
+}
+
 var (
 	defaultGenAccessToken = "default-gen-access-token"
 	defaultIDBindToken    = "default-id-bind-token"
@@ -284,6 +310,9 @@ func defaultTestCase(name string) *workloadIdentityTest {
 				},
 			}, nil
 		},
+		instMetadata: map[string]string{
+			"project-id": "1234",
+		},
 		kubeObjects: []client.Object{
 			&v1.ServiceAccount{
 				ObjectMeta: metav1.ObjectMeta{
@@ -298,8 +327,8 @@ func defaultTestCase(name string) *workloadIdentityTest {
 	}
 }
 
-func defaultStore() *esv1beta1.SecretStore {
-	return &esv1beta1.SecretStore{
+func defaultStore() *esv1.SecretStore {
+	return &esv1.SecretStore{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "foobar",
 			Namespace: "default",
@@ -308,8 +337,8 @@ func defaultStore() *esv1beta1.SecretStore {
 	}
 }
 
-func defaultExternalStore() *esv1beta1.SecretStore {
-	return &esv1beta1.SecretStore{
+func defaultExternalStore() *esv1.SecretStore {
+	return &esv1.SecretStore{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "foobar",
 			Namespace: "default",
@@ -318,10 +347,10 @@ func defaultExternalStore() *esv1beta1.SecretStore {
 	}
 }
 
-func defaultClusterStore() *esv1beta1.ClusterSecretStore {
-	return &esv1beta1.ClusterSecretStore{
+func defaultClusterStore() *esv1.ClusterSecretStore {
+	return &esv1.ClusterSecretStore{
 		TypeMeta: metav1.TypeMeta{
-			Kind: esv1beta1.ClusterSecretStoreKind,
+			Kind: esv1.ClusterSecretStoreKind,
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "foobar",
@@ -330,12 +359,12 @@ func defaultClusterStore() *esv1beta1.ClusterSecretStore {
 	}
 }
 
-func defaultStoreSpec() esv1beta1.SecretStoreSpec {
-	return esv1beta1.SecretStoreSpec{
-		Provider: &esv1beta1.SecretStoreProvider{
-			GCPSM: &esv1beta1.GCPSMProvider{
-				Auth: esv1beta1.GCPSMAuth{
-					WorkloadIdentity: &esv1beta1.GCPWorkloadIdentity{
+func defaultStoreSpec() esv1.SecretStoreSpec {
+	return esv1.SecretStoreSpec{
+		Provider: &esv1.SecretStoreProvider{
+			GCPSM: &esv1.GCPSMProvider{
+				Auth: esv1.GCPSMAuth{
+					WorkloadIdentity: &esv1.GCPWorkloadIdentity{
 						ServiceAccountRef: esmeta.ServiceAccountSelector{
 							Name: "example",
 						},
@@ -349,12 +378,12 @@ func defaultStoreSpec() esv1beta1.SecretStoreSpec {
 	}
 }
 
-func defaultExternalStoreSpec() esv1beta1.SecretStoreSpec {
-	return esv1beta1.SecretStoreSpec{
-		Provider: &esv1beta1.SecretStoreProvider{
-			GCPSM: &esv1beta1.GCPSMProvider{
-				Auth: esv1beta1.GCPSMAuth{
-					WorkloadIdentity: &esv1beta1.GCPWorkloadIdentity{
+func defaultExternalStoreSpec() esv1.SecretStoreSpec {
+	return esv1.SecretStoreSpec{
+		Provider: &esv1.SecretStoreProvider{
+			GCPSM: &esv1.GCPSMProvider{
+				Auth: esv1.GCPSMAuth{
+					WorkloadIdentity: &esv1.GCPWorkloadIdentity{
 						ServiceAccountRef: esmeta.ServiceAccountSelector{
 							Name: "example",
 						},
@@ -369,17 +398,26 @@ func defaultExternalStoreSpec() esv1beta1.SecretStoreSpec {
 	}
 }
 
-type storeMutator func(spc esv1beta1.GenericStore)
+type storeMutator func(spc esv1.GenericStore)
 
-func composeStore(store esv1beta1.GenericStore, mutators ...storeMutator) esv1beta1.GenericStore {
+func composeStore(store esv1.GenericStore, mutators ...storeMutator) esv1.GenericStore {
 	for _, m := range mutators {
 		m(store)
 	}
 	return store
 }
 
+func withClusterID(project, location, name string) storeMutator {
+	return func(store esv1.GenericStore) {
+		spc := store.GetSpec()
+		spc.Provider.GCPSM.Auth.WorkloadIdentity.ClusterProjectID = project
+		spc.Provider.GCPSM.Auth.WorkloadIdentity.ClusterLocation = location
+		spc.Provider.GCPSM.Auth.WorkloadIdentity.ClusterName = name
+	}
+}
+
 func withSANamespace(namespace string) storeMutator {
-	return func(store esv1beta1.GenericStore) {
+	return func(store esv1.GenericStore) {
 		spc := store.GetSpec()
 		spc.Provider.GCPSM.Auth.WorkloadIdentity.ServiceAccountRef.Namespace = &namespace
 	}
@@ -405,6 +443,25 @@ func (f *fakeIAMClient) GenerateAccessToken(ctx context.Context, req *credential
 
 func (f *fakeIAMClient) Close() error {
 	return nil
+}
+
+// fake Metadata Client.
+type fakeMetadataClient struct {
+	metadata map[string]string
+}
+
+func (f *fakeMetadataClient) InstanceAttributeValueWithContext(ctx context.Context, attr string) (string, error) {
+	if val, ok := f.metadata[attr]; ok {
+		return val, nil
+	}
+	return "", fmt.Errorf("attr %s not found", attr)
+}
+
+func (f *fakeMetadataClient) ProjectIDWithContext(ctx context.Context) (string, error) {
+	if val, ok := f.metadata["project-id"]; ok {
+		return val, nil
+	}
+	return "", errors.New("attr project-id not found")
 }
 
 // fake SA Token Generator.

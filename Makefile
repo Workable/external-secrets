@@ -9,7 +9,7 @@ ARCH ?= amd64 arm64 ppc64le
 BUILD_ARGS ?= CGO_ENABLED=0
 DOCKER_BUILD_ARGS ?=
 DOCKERFILE ?= Dockerfile
-
+DOCKER ?= docker
 # default target is build
 .DEFAULT_GOAL := all
 .PHONY: all
@@ -72,7 +72,7 @@ FAIL	= (echo ${TIME} ${RED}[FAIL]${CNone} && false)
 # ====================================================================================
 # Conformance
 
-reviewable: generate docs manifests helm.generate helm.schema.update helm.docs lint ## Ensure a PR is ready for review.
+reviewable: generate docs manifests helm.generate helm.schema.update helm.docs lint license.check helm.test.update test.crds.update tf.fmt ## Ensure a PR is ready for review.
 	@go mod tidy
 	@cd e2e/ && go mod tidy
 
@@ -86,6 +86,10 @@ update-deps:
 	cd e2e && go get -u
 	@go mod tidy
 	@cd e2e/ && go mod tidy
+
+.PHONY: license.check
+license.check:
+	$(DOCKER) run --rm -u $(shell id -u) -v $(shell pwd):/github/workspace apache/skywalking-eyes:0.6.0 header check
 
 # ====================================================================================
 # Golang
@@ -162,7 +166,7 @@ manifests: helm.generate ## Generate manifests from helm chart
 	helm template external-secrets $(HELM_DIR) -f deploy/manifests/helm-values.yaml > $(OUTPUT_DIR)/deploy/manifests/external-secrets.yaml
 
 crds.install: generate ## Install CRDs into a cluster. This is for convenience
-	kubectl apply -f $(BUNDLE_DIR)
+	kubectl apply -f $(BUNDLE_DIR) --server-side
 
 crds.uninstall: ## Uninstall CRDs from a cluster. This is for convenience
 	kubectl delete -f $(BUNDLE_DIR)
@@ -179,9 +183,9 @@ tilt-up: tilt manifests ## Generates the local manifests that tilt will use to d
 
 helm.docs: ## Generate helm docs
 	@cd $(HELM_DIR); \
-	docker run --rm -v $(shell pwd)/$(HELM_DIR):/helm-docs -u $(shell id -u) jnorwood/helm-docs:v1.7.0
+	$(DOCKER) run --rm -v $(shell pwd)/$(HELM_DIR):/helm-docs -u $(shell id -u) docker.io/jnorwood/helm-docs:v1.7.0
 
-HELM_VERSION ?= $(shell helm show chart $(HELM_DIR) | grep 'version:' | sed 's/version: //g')
+HELM_VERSION ?= $(shell helm show chart $(HELM_DIR) | grep '^version:' | sed 's/version: //g')
 
 helm.build: helm.generate ## Build helm chart
 	@$(INFO) helm package
@@ -189,24 +193,51 @@ helm.build: helm.generate ## Build helm chart
 	@mv $(OUTPUT_DIR)/chart/external-secrets-$(HELM_VERSION).tgz $(OUTPUT_DIR)/chart/external-secrets.tgz
 	@$(OK) helm package
 
+# install_helm_plugin is for installing the provided plugin, if it doesn't exist
+# $1 - plugin name
+# $2 - plugin version
+# $3 - plugin url
+define install_helm_plugin
+@v=$$(helm plugin list | awk '$$1=="$(1)"{print $$2}'); \
+if [ -z "$$v" ]; then \
+	$(INFO) "Installing $(1) v$(2)"; \
+	helm plugin install --version $(2) $(3); \
+	$(OK) "Installed $(1) v$(2)"; \
+elif [ "$$v" != "$(2)" ]; then \
+	$(INFO) "Found $(1) $$v. Reinstalling v$(2)"; \
+	helm plugin remove $(1); \
+	helm plugin install --version $(2) $(3); \
+	$(OK) "Reinstalled $(1) v$(2)"; \
+else \
+	$(OK) "$(1) already at v$(2)"; \
+fi
+endef
+
+HELM_SCHEMA_NAME := schema
+HELM_SCHEMA_VER  := 2.2.1
+HELM_SCHEMA_URL  := https://github.com/losisin/helm-values-schema-json.git
 helm.schema.plugin:
-	@$(INFO) Installing helm-values-schema-json plugin
-	@helm plugin install https://github.com/losisin/helm-values-schema-json.git || true
-	@$(OK) Installed helm-values-schema-json plugin
+	$(call install_helm_plugin,$(HELM_SCHEMA_NAME),$(HELM_SCHEMA_VER), $(HELM_SCHEMA_URL))
+
+HELM_UNITTEST_PLUGIN_NAME := unittest
+HELM_UNITTEST_PLUGIN_VER := 1.0.0
+HELM_UNITTEST_PLUGIN_URL := https://github.com/helm-unittest/helm-unittest.git
+helm.unittest.plugin:
+	$(call install_helm_plugin,$(HELM_UNITTEST_PLUGIN_NAME),$(HELM_UNITTEST_PLUGIN_VER), $(HELM_UNITTEST_PLUGIN_URL))
 
 helm.schema.update: helm.schema.plugin
 	@$(INFO) Generating values.schema.json
-	@helm schema -input $(HELM_DIR)/values.yaml -output $(HELM_DIR)/values.schema.json
+	@helm schema -f $(HELM_DIR)/values.yaml -o $(HELM_DIR)/values.schema.json
 	@$(OK) Generated values.schema.json
 
 helm.generate:
 	./hack/helm.generate.sh $(BUNDLE_DIR) $(HELM_DIR)
 	@$(OK) Finished generating helm chart files
 
-helm.test: helm.generate
+helm.test: helm.unittest.plugin helm.generate
 	@helm unittest deploy/charts/external-secrets/
 
-helm.test.update: helm.generate
+helm.test.update: helm.unittest.plugin helm.generate
 	@helm unittest -u deploy/charts/external-secrets/
 
 helm.update.appversion:
@@ -233,6 +264,15 @@ docs.publish: generate ## Generate and deploys docs
 docs.serve: ## Serve docs
 	$(MAKE) -C ./hack/api-docs serve
 
+DOCS_VERSION ?= $(VERSION)
+.PHONY: docs.check
+docs.check: ## Check docs
+	$(MAKE) -C ./hack/api-docs check DOCS_VERSION=$(DOCS_VERSION)
+
+.PHONY: docs.update
+docs.update: ## Update docs
+	$(MAKE) -C ./hack/api-docs stability-support.update DOCS_VERSION=$(DOCS_VERSION)
+
 # ====================================================================================
 # Build Artifacts
 
@@ -253,16 +293,16 @@ docker.tag:  ## Emit IMAGE_TAG
 
 .PHONY: docker.build
 docker.build: $(addprefix build-,$(ARCH)) ## Build the docker image
-	@$(INFO) docker build
-	echo docker build -f $(DOCKERFILE) . $(DOCKER_BUILD_ARGS) -t $(IMAGE_NAME):$(IMAGE_TAG)
-	DOCKER_BUILDKIT=1 docker build -f $(DOCKERFILE) . $(DOCKER_BUILD_ARGS) -t $(IMAGE_NAME):$(IMAGE_TAG)
-	@$(OK) docker build
+	@$(INFO) $(DOCKER) build
+	echo $(DOCKER) build -f $(DOCKERFILE) . $(DOCKER_BUILD_ARGS) -t $(IMAGE_NAME):$(IMAGE_TAG)
+	DOCKER_BUILDKIT=1 $(DOCKER) build -f $(DOCKERFILE) . $(DOCKER_BUILD_ARGS) -t $(IMAGE_NAME):$(IMAGE_TAG)
+	@$(OK) $(DOCKER) build
 
 .PHONY: docker.push
 docker.push: ## Push the docker image to the registry
-	@$(INFO) docker push
-	@docker push $(IMAGE_NAME):$(IMAGE_TAG)
-	@$(OK) docker push
+	@$(INFO) $(DOCKER) push
+	@$(DOCKER) push $(IMAGE_NAME):$(IMAGE_TAG)
+	@$(OK) $(DOCKER) push
 
 # RELEASE_TAG is tag to promote. Default is promoting to main branch, but can be overriden
 # to promote a tag to a specific version.
@@ -272,38 +312,44 @@ SOURCE_TAG ?= $(VERSION)$(TAG_SUFFIX)
 .PHONY: docker.promote
 docker.promote: ## Promote the docker image to the registry
 	@$(INFO) promoting $(SOURCE_TAG) to $(RELEASE_TAG)
-	docker manifest inspect --verbose $(IMAGE_NAME):$(SOURCE_TAG) > .tagmanifest
+	$(DOCKER) manifest inspect --verbose $(IMAGE_NAME):$(SOURCE_TAG) > .tagmanifest
 	for digest in $$(jq -r 'if type=="array" then .[].Descriptor.digest else .Descriptor.digest end' < .tagmanifest); do \
-		docker pull $(IMAGE_NAME)@$$digest; \
+		$(DOCKER) pull $(IMAGE_NAME)@$$digest; \
 	done
-	docker manifest create $(IMAGE_NAME):$(RELEASE_TAG) \
+	$(DOCKER) manifest create $(IMAGE_NAME):$(RELEASE_TAG) \
 		$$(jq -j '"--amend $(IMAGE_NAME)@" + if type=="array" then .[].Descriptor.digest else .Descriptor.digest end + " "' < .tagmanifest)
-	docker manifest push $(IMAGE_NAME):$(RELEASE_TAG)
-	@$(OK) docker push $(RELEASE_TAG) \
+	$(DOCKER) manifest push $(IMAGE_NAME):$(RELEASE_TAG)
+	@$(OK) $(DOCKER) push $(RELEASE_TAG) \
 
 # ====================================================================================
 # Terraform
 
-tf.plan.%: ## Runs terraform plan for a provider
-	@cd $(TF_DIR)/$*; \
-	terraform init; \
-	terraform plan
+define run_terraform
+	@cd $(TF_DIR)/$1/infrastructure && \
+	terraform init && \
+	$2 && \
+	cd ../kubernetes && \
+	terraform init && \
+	$3
+endef
 
-tf.apply.%: ## Runs terraform apply for a provider
-	@cd $(TF_DIR)/$*; \
-	terraform init; \
-	terraform apply -auto-approve
+tf.plan.%:
+	$(call run_terraform,$*,terraform plan,terraform plan)
 
-tf.destroy.%: ## Runs terraform destroy for a provider
-	@cd $(TF_DIR)/$*; \
-	terraform init; \
+tf.apply.%:
+	$(call run_terraform,$*,terraform apply -auto-approve,terraform apply -auto-approve)
+
+tf.destroy.%:
+	@cd $(TF_DIR)/$*/kubernetes && \
+	terraform init && \
+	terraform destroy -auto-approve && \
+	cd ../infrastructure && \
+	terraform init && \
 	terraform destroy -auto-approve
 
-tf.show.%: ## Runs terraform show for a provider and outputs to a file
-	@cd $(TF_DIR)/$*; \
-	terraform init; \
-	terraform plan -out tfplan.binary; \
-	terraform show -json tfplan.binary > plan.json
+tf.fmt:
+	@cd $(TF_DIR) && \
+	terraform fmt -recursive
 
 # ====================================================================================
 # Help
@@ -353,8 +399,8 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint
 
 ## Tool Versions
-GOLANGCI_VERSION := 1.64.6
-KUBERNETES_VERSION := 1.30.x
+GOLANGCI_VERSION := 2.4.0
+KUBERNETES_VERSION := 1.33.x
 TILT_VERSION := 0.33.21
 CTY_VERSION := 1.1.3
 
@@ -367,7 +413,7 @@ $(ENVTEST): $(LOCALBIN)
 .PHONY: $(GOLANGCI_LINT)
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
-	test -s $(LOCALBIN)/golangci-lint && $(LOCALBIN)/golangci-lint version --format short | grep -q $(GOLANGCI_VERSION) || \
+	test -s $(LOCALBIN)/golangci-lint && $(LOCALBIN)/golangci-lint version | grep -q $(GOLANGCI_VERSION) || \
 	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(LOCALBIN) v$(GOLANGCI_VERSION)
 
 .PHONY: tilt

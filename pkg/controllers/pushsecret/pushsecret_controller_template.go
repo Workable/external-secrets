@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,14 +19,15 @@ package pushsecret
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	v1 "k8s.io/api/core/v1"
 
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	"github.com/external-secrets/external-secrets/apis/externalsecrets/v1alpha1"
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
 	"github.com/external-secrets/external-secrets/pkg/controllers/templating"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
 	"github.com/external-secrets/external-secrets/pkg/template"
-	"github.com/external-secrets/external-secrets/pkg/utils"
 
 	_ "github.com/external-secrets/external-secrets/pkg/provider/register" // Loading registered providers.
 )
@@ -50,15 +53,20 @@ func (r *Reconciler) applyTemplate(ctx context.Context, ps *v1alpha1.PushSecret,
 		return err
 	}
 
-	execute, err := template.EngineForVersion(esv1beta1.TemplateEngineV2)
+	execute, err := template.EngineForVersion(esv1.TemplateEngineV2)
 	if err != nil {
 		return err
 	}
-
+	// Copies secret.Data to dataMap to avoid modifying the original secret
+	// This avoids uncertain behavior if kube-apiserver sends the
+	// template map in a different order on each reconcile loop
+	// ref: https://github.com/external-secrets/external-secrets/issues/5018
+	dataMap := make(map[string][]byte)
+	maps.Copy(dataMap, secret.Data)
 	p := templating.Parser{
 		Client:       r.Client,
 		TargetSecret: secret,
-		DataMap:      secret.Data,
+		DataMap:      dataMap,
 		Exec:         execute,
 	}
 
@@ -68,18 +76,18 @@ func (r *Reconciler) applyTemplate(ctx context.Context, ps *v1alpha1.PushSecret,
 		return fmt.Errorf(errFetchTplFrom, err)
 	}
 	// explicitly defined template.Data takes precedence over templateFrom
-	err = p.MergeMap(ps.Spec.Template.Data, esv1beta1.TemplateTargetData)
+	err = p.MergeMap(ps.Spec.Template.Data, esv1.TemplateTargetData)
 	if err != nil {
 		return fmt.Errorf(errExecTpl, err)
 	}
 
 	// get template data for labels
-	err = p.MergeMap(ps.Spec.Template.Metadata.Labels, esv1beta1.TemplateTargetLabels)
+	err = p.MergeMap(ps.Spec.Template.Metadata.Labels, esv1.TemplateTargetLabels)
 	if err != nil {
 		return fmt.Errorf(errExecTpl, err)
 	}
 	// get template data for annotations
-	err = p.MergeMap(ps.Spec.Template.Metadata.Annotations, esv1beta1.TemplateTargetAnnotations)
+	err = p.MergeMap(ps.Spec.Template.Metadata.Annotations, esv1.TemplateTargetAnnotations)
 	if err != nil {
 		return fmt.Errorf(errExecTpl, err)
 	}
@@ -98,8 +106,8 @@ func setMetadata(secret *v1.Secret, ps *v1alpha1.PushSecret) error {
 	}
 
 	secret.Type = ps.Spec.Template.Type
-	utils.MergeStringMap(secret.ObjectMeta.Labels, ps.Spec.Template.Metadata.Labels)
-	utils.MergeStringMap(secret.ObjectMeta.Annotations, ps.Spec.Template.Metadata.Annotations)
+	esutils.MergeStringMap(secret.ObjectMeta.Labels, ps.Spec.Template.Metadata.Labels)
+	esutils.MergeStringMap(secret.ObjectMeta.Annotations, ps.Spec.Template.Metadata.Annotations)
 
 	return nil
 }

@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,7 +19,7 @@ package v1alpha1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	smmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 )
 
@@ -50,7 +52,7 @@ type ACRAccessTokenSpec struct {
 	// The following endpoints are available, also see here: https://github.com/Azure/go-autorest/blob/main/autorest/azure/environments.go#L152
 	// PublicCloud, USGovernmentCloud, ChinaCloud, GermanCloud
 	// +kubebuilder:default=PublicCloud
-	EnvironmentType v1beta1.AzureEnvironmentType `json:"environmentType,omitempty"`
+	EnvironmentType esv1.AzureEnvironmentType `json:"environmentType,omitempty"`
 }
 
 type ACRAuth struct {

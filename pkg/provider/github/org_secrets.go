@@ -1,16 +1,19 @@
-// /*
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//	http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// */
+/*
+Copyright © 2025 ESO Maintainer Team
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package github
 
 import (
@@ -18,10 +21,10 @@ import (
 
 	github "github.com/google/go-github/v56/github"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 )
 
-func (g *Client) orgGetSecretFn(ctx context.Context, ref esv1beta1.PushSecretRemoteRef) (*github.Secret, *github.Response, error) {
+func (g *Client) orgGetSecretFn(ctx context.Context, ref esv1.PushSecretRemoteRef) (*github.Secret, *github.Response, error) {
 	return g.baseClient.GetOrgSecret(ctx, g.provider.Organization, ref.GetRemoteKey())
 }
 
@@ -37,6 +40,6 @@ func (g *Client) orgListSecretsFn(ctx context.Context) (*github.Secrets, *github
 	return g.baseClient.ListOrgSecrets(ctx, g.provider.Organization, &github.ListOptions{})
 }
 
-func (g *Client) orgDeleteSecretsFn(ctx context.Context, remoteRef esv1beta1.PushSecretRemoteRef) (*github.Response, error) {
+func (g *Client) orgDeleteSecretsFn(ctx context.Context, remoteRef esv1.PushSecretRemoteRef) (*github.Response, error) {
 	return g.baseClient.DeleteOrgSecret(ctx, g.provider.Organization, remoteRef.GetRemoteKey())
 }

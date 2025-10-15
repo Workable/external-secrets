@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,17 +29,21 @@ import (
 	"net/url"
 	tpl "text/template"
 
+	"github.com/Azure/go-ntlmssp"
 	"github.com/PaesslerAG/jsonpath"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 	"github.com/external-secrets/external-secrets/pkg/constants"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
 	"github.com/external-secrets/external-secrets/pkg/metrics"
 	"github.com/external-secrets/external-secrets/pkg/template/v2"
-	"github.com/external-secrets/external-secrets/pkg/utils"
 )
 
+// Webhook implements functionality to interact with webhook endpoints
+// to retrieve and push secrets.
 type Webhook struct {
 	Kube          client.Client
 	Namespace     string
@@ -47,7 +53,7 @@ type Webhook struct {
 	ClusterScoped bool
 }
 
-func (w *Webhook) getStoreSecret(ctx context.Context, ref SecretKeySelector) (*corev1.Secret, error) {
+func (w *Webhook) getStoreSecret(ctx context.Context, ref esmeta.SecretKeySelector) (*corev1.Secret, error) {
 	ke := client.ObjectKey{
 		Name:      ref.Name,
 		Namespace: w.Namespace,
@@ -73,7 +79,10 @@ func (w *Webhook) getStoreSecret(ctx context.Context, ref SecretKeySelector) (*c
 	}
 	return secret, nil
 }
-func (w *Webhook) GetSecretMap(ctx context.Context, provider *Spec, ref *esv1beta1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
+
+// GetSecretMap retrieves a secret from a webhook endpoint and processes
+// the response as a map of key-value pairs.
+func (w *Webhook) GetSecretMap(ctx context.Context, provider *Spec, ref *esv1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
 	result, err := w.GetWebhookData(ctx, provider, ref)
 	if err != nil {
 		return nil, err
@@ -107,7 +116,7 @@ func (w *Webhook) GetSecretMap(ctx context.Context, provider *Spec, ref *esv1bet
 	// Change the map of generic objects to a map of byte arrays
 	values := make(map[string][]byte)
 	for rKey := range jsonvalue {
-		values[rKey], err = utils.GetByteValueFromMap(jsonvalue, rKey)
+		values[rKey], err = esutils.GetByteValueFromMap(jsonvalue, rKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get response for key '%s': %w", rKey, err)
 		}
@@ -115,20 +124,23 @@ func (w *Webhook) GetSecretMap(ctx context.Context, provider *Spec, ref *esv1bet
 	return values, nil
 }
 
-func (w *Webhook) GetTemplateData(ctx context.Context, ref *esv1beta1.ExternalSecretDataRemoteRef, secrets []Secret, urlEncode bool) (map[string]map[string]string, error) {
+// GetTemplateData prepares the template data for webhook requests based on the given remote reference.
+func (w *Webhook) GetTemplateData(ctx context.Context, ref *esv1.ExternalSecretDataRemoteRef, secrets []Secret, urlEncode bool) (map[string]map[string]string, error) {
 	data := map[string]map[string]string{}
 	if ref != nil {
 		if urlEncode {
 			data["remoteRef"] = map[string]string{
-				"key":      url.QueryEscape(ref.Key),
-				"version":  url.QueryEscape(ref.Version),
-				"property": url.QueryEscape(ref.Property),
+				"key":       url.QueryEscape(ref.Key),
+				"version":   url.QueryEscape(ref.Version),
+				"property":  url.QueryEscape(ref.Property),
+				"namespace": w.Namespace,
 			}
 		} else {
 			data["remoteRef"] = map[string]string{
-				"key":      ref.Key,
-				"version":  ref.Version,
-				"property": ref.Property,
+				"key":       ref.Key,
+				"version":   ref.Version,
+				"property":  ref.Property,
+				"namespace": w.Namespace,
 			}
 		}
 	}
@@ -136,11 +148,11 @@ func (w *Webhook) GetTemplateData(ctx context.Context, ref *esv1beta1.ExternalSe
 	if err := w.getTemplatedSecrets(ctx, secrets, data); err != nil {
 		return nil, err
 	}
-
 	return data, nil
 }
 
-func (w *Webhook) GetTemplatePushData(ctx context.Context, ref esv1beta1.PushSecretData, secrets []Secret, urlEncode bool) (map[string]map[string]string, error) {
+// GetTemplatePushData prepares the template data for webhook push requests.
+func (w *Webhook) GetTemplatePushData(ctx context.Context, ref esv1.PushSecretData, secrets []Secret, urlEncode bool) (map[string]map[string]string, error) {
 	data := map[string]map[string]string{}
 	if ref != nil {
 		if urlEncode {
@@ -184,11 +196,13 @@ func (w *Webhook) getTemplatedSecrets(ctx context.Context, secrets []Secret, dat
 	return nil
 }
 
-func (w *Webhook) GetWebhookData(ctx context.Context, provider *Spec, ref *esv1beta1.ExternalSecretDataRemoteRef) ([]byte, error) {
+// GetWebhookData makes a request to the webhook endpoint and returns the raw response data.
+func (w *Webhook) GetWebhookData(ctx context.Context, provider *Spec, ref *esv1.ExternalSecretDataRemoteRef) ([]byte, error) {
 	if w.HTTP == nil {
 		return nil, errors.New("http client not initialized")
 	}
 
+	// Parse store secrets
 	escapedData, err := w.GetTemplateData(ctx, ref, provider.Secrets, true)
 	if err != nil {
 		return nil, err
@@ -198,14 +212,19 @@ func (w *Webhook) GetWebhookData(ctx context.Context, provider *Spec, ref *esv1b
 		return nil, err
 	}
 
+	// set method
 	method := provider.Method
 	if method == "" {
 		method = http.MethodGet
 	}
+
+	// set url
 	url, err := ExecuteTemplateString(provider.URL, escapedData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse url: %w", err)
 	}
+
+	// set body
 	body, err := ExecuteTemplate(provider.Body, rawData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse body: %w", err)
@@ -214,7 +233,8 @@ func (w *Webhook) GetWebhookData(ctx context.Context, provider *Spec, ref *esv1b
 	return w.executeRequest(ctx, provider, body.Bytes(), url, method, rawData)
 }
 
-func (w *Webhook) PushWebhookData(ctx context.Context, provider *Spec, data []byte, remoteKey esv1beta1.PushSecretData) error {
+// PushWebhookData pushes data to a webhook endpoint.
+func (w *Webhook) PushWebhookData(ctx context.Context, provider *Spec, data []byte, remoteKey esv1.PushSecretData) error {
 	if w.HTTP == nil {
 		return errors.New("http client not initialized")
 	}
@@ -263,12 +283,18 @@ func (w *Webhook) executeRequest(ctx context.Context, provider *Spec, data []byt
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	for hKey, hValueTpl := range provider.Headers {
-		hValue, err := ExecuteTemplateString(hValueTpl, rawData)
+	if provider.Headers != nil {
+		req, err = w.ReqAddHeaders(req, provider, rawData)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse header %s: %w", hKey, err)
+			return nil, err
 		}
-		req.Header.Add(hKey, hValue)
+	}
+
+	if provider.Auth != nil {
+		req, err = w.ReqAddAuth(ctx, req, provider)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	resp, err := w.HTTP.Do(req)
@@ -276,47 +302,113 @@ func (w *Webhook) executeRequest(ctx context.Context, provider *Spec, data []byt
 	if err != nil {
 		return nil, fmt.Errorf("failed to call endpoint: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode == 404 {
-		return nil, esv1beta1.NoSecretError{}
+		return nil, esv1.NoSecretError{}
 	}
 
 	if resp.StatusCode == http.StatusNotModified {
-		return nil, esv1beta1.NotModifiedError{}
+		return nil, esv1.NotModifiedError{}
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("endpoint gave error %s", resp.Status)
 	}
+
+	// return response body
 	return io.ReadAll(resp.Body)
 }
 
-func (w *Webhook) GetHTTPClient(ctx context.Context, provider *Spec) (*http.Client, error) {
-	client := &http.Client{}
-	if provider.Timeout != nil {
-		client.Timeout = provider.Timeout.Duration
-	}
-	if len(provider.CABundle) == 0 && provider.CAProvider == nil {
-		// No need to process ca stuff if it is not there
-		return client, nil
-	}
-	caCertPool, err := w.GetCACertPool(ctx, provider)
-	if err != nil {
-		return nil, err
+// ReqAddHeaders adds headers to an HTTP request based on provider configuration.
+func (w *Webhook) ReqAddHeaders(r *http.Request, provider *Spec, rawData map[string]map[string]string) (*http.Request, error) {
+	reqWithHeaders := r
+
+	for hKey, hValueTpl := range provider.Headers {
+		hValue, err := ExecuteTemplateString(hValueTpl, rawData)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse header %s: %w", hKey, err)
+		}
+		reqWithHeaders.Header.Add(hKey, hValue)
 	}
 
-	tlsConf := &tls.Config{
-		RootCAs:       caCertPool,
-		MinVersion:    tls.VersionTLS12,
-		Renegotiation: tls.RenegotiateOnceAsClient,
-	}
-	client.Transport = &http.Transport{TLSClientConfig: tlsConf}
-	return client, nil
+	return reqWithHeaders, nil
 }
 
+// ReqAddAuth adds authentication to an HTTP request based on provider configuration.
+func (w *Webhook) ReqAddAuth(ctx context.Context, r *http.Request, provider *Spec) (*http.Request, error) {
+	reqWithAuth := r
+
+	//nolint:gocritic // singleCaseSwitch: we prefer to keep it as a switch for clarity
+	switch {
+	case provider.Auth.NTLM != nil:
+		userSecretRef := provider.Auth.NTLM.UserName
+		userSecret, err := w.getStoreSecret(ctx, userSecretRef)
+		if err != nil {
+			return nil, err
+		}
+		username := string(userSecret.Data[userSecretRef.Key])
+
+		PasswordSecretRef := provider.Auth.NTLM.Password
+		PasswordSecret, err := w.getStoreSecret(ctx, PasswordSecretRef)
+		if err != nil {
+			return nil, err
+		}
+		password := string(PasswordSecret.Data[PasswordSecretRef.Key])
+
+		// This overwrites auth headers set by providers.headers
+		reqWithAuth.SetBasicAuth(username, password)
+	}
+	return reqWithAuth, nil
+}
+
+// GetHTTPClient returns an HTTP client configured according to the provider specification.
+func (w *Webhook) GetHTTPClient(ctx context.Context, provider *Spec) (*http.Client, error) {
+	c := &http.Client{}
+
+	// add timeout to client if it is there
+	if provider.Timeout != nil {
+		c.Timeout = provider.Timeout.Duration
+	}
+
+	// add CA to client if it is there
+	if len(provider.CABundle) > 0 || provider.CAProvider != nil {
+		caCertPool, err := w.GetCACertPool(ctx, provider)
+		if err != nil {
+			return nil, err
+		}
+
+		tlsConf := &tls.Config{
+			RootCAs:       caCertPool,
+			MinVersion:    tls.VersionTLS12,
+			Renegotiation: tls.RenegotiateOnceAsClient,
+		}
+
+		c.Transport = &http.Transport{TLSClientConfig: tlsConf}
+	}
+	// add authentication method if it s there
+	if provider.Auth != nil {
+		if provider.Auth.NTLM != nil {
+			c.Transport =
+				&ntlmssp.Negotiator{
+					RoundTripper: &http.Transport{
+						TLSNextProto: map[string]func(authority string, c *tls.Conn) http.RoundTripper{}, // Needed to disable HTTP/2
+
+					},
+				}
+		}
+		// add additional auth methods here
+	}
+
+	// return client with all add-ons
+	return c, nil
+}
+
+// GetCACertPool returns a certificate pool for TLS connections based on provider configuration.
 func (w *Webhook) GetCACertPool(ctx context.Context, provider *Spec) (*x509.CertPool, error) {
 	caCertPool := x509.NewCertPool()
-	ca, err := utils.FetchCACertFromSource(ctx, utils.CreateCertOpts{
+	ca, err := esutils.FetchCACertFromSource(ctx, esutils.CreateCertOpts{
 		CABundle:   provider.CABundle,
 		CAProvider: provider.CAProvider,
 		StoreKind:  w.StoreKind,
@@ -334,6 +426,7 @@ func (w *Webhook) GetCACertPool(ctx context.Context, provider *Spec) (*x509.Cert
 	return caCertPool, nil
 }
 
+// ExecuteTemplateString executes a template and returns the result as a string.
 func ExecuteTemplateString(tmpl string, data map[string]map[string]string) (string, error) {
 	result, err := ExecuteTemplate(tmpl, data)
 	if err != nil {
@@ -342,6 +435,7 @@ func ExecuteTemplateString(tmpl string, data map[string]map[string]string) (stri
 	return result.String(), nil
 }
 
+// ExecuteTemplate executes a template and returns the result as a bytes.Buffer.
 func ExecuteTemplate(tmpl string, data map[string]map[string]string) (bytes.Buffer, error) {
 	var result bytes.Buffer
 	if tmpl == "" {

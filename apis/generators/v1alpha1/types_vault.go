@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,7 +20,7 @@ import (
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 )
 
 type VaultDynamicSecretSpec struct {
@@ -44,10 +46,10 @@ type VaultDynamicSecretSpec struct {
 
 	// Used to configure http retries if failed
 	// +optional
-	RetrySettings *esv1beta1.SecretStoreRetrySettings `json:"retrySettings,omitempty"`
+	RetrySettings *esv1.SecretStoreRetrySettings `json:"retrySettings,omitempty"`
 
 	// Vault provider common spec
-	Provider *esv1beta1.VaultProvider `json:"provider"`
+	Provider *esv1.VaultProvider `json:"provider"`
 
 	// Vault path to obtain the dynamic secret from
 	Path string `json:"path"`

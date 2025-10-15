@@ -7,7 +7,7 @@ The following external-secret custom resource APIs are considered stable:
 * `SecretStore`
 * `ClusterSecretStore`
 
-These CRDs are currently at `v1beta1` and are considered production ready. Going forward, breaking changes to these APIs will be accompanied by a conversion mechanism.
+These CRDs are currently at `v1` and are considered production ready. Going forward, breaking changes to these APIs will be accompanied by a conversion mechanism.
 
 We have identified the following areas of work. This is subject to change while we gather feedback. We have a [GitHub Project Board](https://github.com/orgs/external-secrets/projects/2/views/1) where we organize issues and milestones on a high level.
 
@@ -16,12 +16,9 @@ We have identified the following areas of work. This is subject to change while 
     * ✓ end to end testing with ArgoCD and Flux
     * ✓ end to end testing for all project maintained providers
 * API enhancements
-    * consolidate provider fields
     * ✓ dataFrom key rewrites
-    * provider versioning strategy
     * ✓ pushing secrets to a provider
 * Documentation Improvements
-    * Troubleshooting Guides
     * ✓ FAQ
     * ✓ review multi tenancy docs
     * ✓ security model for infosec teams

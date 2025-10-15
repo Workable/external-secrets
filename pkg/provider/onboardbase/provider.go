@@ -1,13 +1,15 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or impliec.
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
@@ -22,9 +24,9 @@ import (
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
 	oClient "github.com/external-secrets/external-secrets/pkg/provider/onboardbase/client"
-	"github.com/external-secrets/external-secrets/pkg/utils"
 )
 
 const (
@@ -33,24 +35,26 @@ const (
 	errOnboardbaseStore = "missing or invalid Onboardbase SecretStore"
 )
 
-// Provider is a Onboardbase secrets provider implementing NewClient and ValidateStore for the esv1beta1.Provider interface.
+// Provider is a Onboardbase secrets provider implementing NewClient and ValidateStore for the esv1.Provider interface.
 type Provider struct{}
 
 // https://github.com/external-secrets/external-secrets/issues/644
-var _ esv1beta1.SecretsClient = &Client{}
-var _ esv1beta1.Provider = &Provider{}
+var _ esv1.SecretsClient = &Client{}
+var _ esv1.Provider = &Provider{}
 
 func init() {
-	esv1beta1.Register(&Provider{}, &esv1beta1.SecretStoreProvider{
-		Onboardbase: &esv1beta1.OnboardbaseProvider{},
-	})
+	esv1.Register(&Provider{}, &esv1.SecretStoreProvider{
+		Onboardbase: &esv1.OnboardbaseProvider{},
+	}, esv1.MaintenanceStatusMaintained)
 }
 
-func (p *Provider) Capabilities() esv1beta1.SecretStoreCapabilities {
-	return esv1beta1.SecretStoreReadOnly
+// Capabilities returns the provider's supported capabilities.
+func (p *Provider) Capabilities() esv1.SecretStoreCapabilities {
+	return esv1.SecretStoreReadOnly
 }
 
-func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, kube kclient.Client, namespace string) (esv1beta1.SecretsClient, error) {
+// NewClient creates a new Onboardbase client with the provided store configuration.
+func (p *Provider) NewClient(ctx context.Context, store esv1.GenericStore, kube kclient.Client, namespace string) (esv1.SecretsClient, error) {
 	storeSpec := store.GetSpec()
 
 	if storeSpec == nil || storeSpec.Provider == nil || storeSpec.Provider.Onboardbase == nil {
@@ -82,11 +86,12 @@ func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, 
 	return client, nil
 }
 
-func (p *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnings, error) {
+// ValidateStore validates the Onboardbase SecretStore configuration.
+func (p *Provider) ValidateStore(store esv1.GenericStore) (admission.Warnings, error) {
 	storeSpec := store.GetSpec()
 	onboardbaseStoreSpec := storeSpec.Provider.Onboardbase
 	onboardbaseAPIKeySecretRef := onboardbaseStoreSpec.Auth.OnboardbaseAPIKeyRef
-	if err := utils.ValidateSecretSelector(store, onboardbaseAPIKeySecretRef); err != nil {
+	if err := esutils.ValidateSecretSelector(store, onboardbaseAPIKeySecretRef); err != nil {
 		return nil, fmt.Errorf(errInvalidStore, err)
 	}
 
@@ -95,7 +100,7 @@ func (p *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnin
 	}
 
 	onboardbasePasscodeKeySecretRef := onboardbaseStoreSpec.Auth.OnboardbasePasscodeRef
-	if err := utils.ValidateSecretSelector(store, onboardbasePasscodeKeySecretRef); err != nil {
+	if err := esutils.ValidateSecretSelector(store, onboardbasePasscodeKeySecretRef); err != nil {
 		return nil, fmt.Errorf(errInvalidStore, err)
 	}
 

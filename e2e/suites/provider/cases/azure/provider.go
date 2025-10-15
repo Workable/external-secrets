@@ -1,19 +1,21 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+	https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
 limitations under the License.
 */
 package azure
 
 import (
-	"context"
 	"os"
 	"strings"
 	"sync"
@@ -29,11 +31,12 @@ import (
 	// nolint
 	. "github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilpointer "k8s.io/utils/pointer"
 
 	"github.com/external-secrets/external-secrets-e2e/framework"
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 	esoazkv "github.com/external-secrets/external-secrets/pkg/provider/azure/keyvault"
 )
@@ -81,6 +84,8 @@ func newFromEnv(f *framework.Framework) *azureProvider {
 		})
 		prov.CreateSecretStore()
 		prov.CreateReferentSecretStore()
+		prov.CreateSecretStoreNewSDK()
+		prov.CreateReferentSecretStoreNewSDK()
 	})
 
 	return prov
@@ -120,9 +125,9 @@ func newFromWorkloadIdentity(f *framework.Framework) *azureProvider {
 			}
 
 			// exchange the federated token for an access token
-			aadEndpoint := esoazkv.AadEndpointForType(esv1beta1.AzureEnvironmentPublicCloud)
+			aadEndpoint := esoazkv.AadEndpointForType(esv1.AzureEnvironmentPublicCloud)
 			kvResource := strings.TrimSuffix(azure.PublicCloud.KeyVaultEndpoint, "/")
-			tokenProvider, err := esoazkv.NewTokenProvider(context.Background(), string(token), clientID, tenantID, aadEndpoint, kvResource)
+			tokenProvider, err := esoazkv.NewTokenProvider(GinkgoT().Context(), string(token), clientID, tenantID, aadEndpoint, kvResource)
 			if err != nil {
 				Fail(err.Error())
 			}
@@ -135,7 +140,7 @@ func newFromWorkloadIdentity(f *framework.Framework) *azureProvider {
 
 func (s *azureProvider) CreateSecret(key string, val framework.SecretEntry) {
 	_, err := s.client.SetSecret(
-		context.Background(),
+		GinkgoT().Context(),
 		s.vaultURL,
 		key,
 		keyvault.SecretSetParameters{
@@ -150,7 +155,7 @@ func (s *azureProvider) CreateSecret(key string, val framework.SecretEntry) {
 
 func (s *azureProvider) DeleteSecret(key string) {
 	_, err := s.client.DeleteSecret(
-		context.Background(),
+		GinkgoT().Context(),
 		s.vaultURL,
 		key)
 	Expect(err).ToNot(HaveOccurred())
@@ -158,7 +163,7 @@ func (s *azureProvider) DeleteSecret(key string) {
 
 func (s *azureProvider) CreateKey(key string) *keyvault.JSONWebKey {
 	out, err := s.client.CreateKey(
-		context.Background(),
+		GinkgoT().Context(),
 		s.vaultURL,
 		key,
 		keyvault.KeyCreateParameters{
@@ -174,13 +179,13 @@ func (s *azureProvider) CreateKey(key string) *keyvault.JSONWebKey {
 }
 
 func (s *azureProvider) DeleteKey(key string) {
-	_, err := s.client.DeleteKey(context.Background(), s.vaultURL, key)
+	_, err := s.client.DeleteKey(GinkgoT().Context(), s.vaultURL, key)
 	Expect(err).ToNot(HaveOccurred())
 }
 
 func (s *azureProvider) CreateCertificate(key string) {
 	_, err := s.client.CreateCertificate(
-		context.Background(),
+		GinkgoT().Context(),
 		s.vaultURL,
 		key,
 		keyvault.CertificateCreateParameters{
@@ -210,7 +215,7 @@ func (s *azureProvider) GetCertificate(key string) []byte {
 	attempts := 60
 	for {
 		out, err := s.client.GetCertificate(
-			context.Background(),
+			GinkgoT().Context(),
 			s.vaultURL,
 			key,
 			"",
@@ -229,7 +234,7 @@ func (s *azureProvider) GetCertificate(key string) []byte {
 }
 
 func (s *azureProvider) DeleteCertificate(key string) {
-	_, err := s.client.DeleteCertificate(context.Background(), s.vaultURL, key)
+	_, err := s.client.DeleteCertificate(GinkgoT().Context(), s.vaultURL, key)
 	Expect(err).ToNot(HaveOccurred())
 }
 
@@ -241,11 +246,11 @@ const (
 	credentialKeyClientSecret         = "client-secret"
 )
 
-func newProviderWithStaticCredentials(tenantID, vaultURL, secretName string) *esv1beta1.AzureKVProvider {
-	return &esv1beta1.AzureKVProvider{
+func newProviderWithStaticCredentials(tenantID, vaultURL, secretName string) *esv1.AzureKVProvider {
+	return &esv1.AzureKVProvider{
 		TenantID: &tenantID,
 		VaultURL: &vaultURL,
-		AuthSecretRef: &esv1beta1.AzureKVAuth{
+		AuthSecretRef: &esv1.AzureKVAuth{
 			ClientID: &esmeta.SecretKeySelector{
 				Name: staticSecretName,
 				Key:  credentialKeyClientID,
@@ -258,8 +263,27 @@ func newProviderWithStaticCredentials(tenantID, vaultURL, secretName string) *es
 	}
 }
 
-func newProviderWithServiceAccount(tenantID, vaultURL string, authType esv1beta1.AzureAuthType, serviceAccountName string, serviceAccountNamespace *string) *esv1beta1.AzureKVProvider {
-	return &esv1beta1.AzureKVProvider{
+func newProviderWithStaticCredentialsNewSDK(tenantID, vaultURL, secretName string) *esv1.AzureKVProvider {
+	useNewSDK := true
+	return &esv1.AzureKVProvider{
+		TenantID:    &tenantID,
+		VaultURL:    &vaultURL,
+		UseAzureSDK: &useNewSDK,
+		AuthSecretRef: &esv1.AzureKVAuth{
+			ClientID: &esmeta.SecretKeySelector{
+				Name: staticSecretName,
+				Key:  credentialKeyClientID,
+			},
+			ClientSecret: &esmeta.SecretKeySelector{
+				Name: staticSecretName,
+				Key:  credentialKeyClientSecret,
+			},
+		},
+	}
+}
+
+func newProviderWithServiceAccount(tenantID, vaultURL string, authType esv1.AzureAuthType, serviceAccountName string, serviceAccountNamespace *string) *esv1.AzureKVProvider {
+	return &esv1.AzureKVProvider{
 		TenantID: &tenantID,
 		VaultURL: &vaultURL,
 		AuthType: &authType,
@@ -281,20 +305,51 @@ func (s *azureProvider) CreateSecretStore() {
 			credentialKeyClientSecret: s.clientSecret,
 		},
 	}
-	err := s.framework.CRClient.Create(context.Background(), azureCreds)
+	err := s.framework.CRClient.Create(GinkgoT().Context(), azureCreds)
 	Expect(err).ToNot(HaveOccurred())
-	secretStore := &esv1beta1.SecretStore{
+	secretStore := &esv1.SecretStore{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      s.framework.Namespace.Name,
 			Namespace: s.framework.Namespace.Name,
 		},
-		Spec: esv1beta1.SecretStoreSpec{
-			Provider: &esv1beta1.SecretStoreProvider{
+		Spec: esv1.SecretStoreSpec{
+			Provider: &esv1.SecretStoreProvider{
 				AzureKV: newProviderWithStaticCredentials(s.tenantID, s.vaultURL, staticSecretName),
 			},
 		},
 	}
-	err = s.framework.CRClient.Create(context.Background(), secretStore)
+	err = s.framework.CRClient.Create(GinkgoT().Context(), secretStore)
+	Expect(err).ToNot(HaveOccurred())
+}
+
+func (s *azureProvider) CreateSecretStoreNewSDK() {
+	azureCreds := &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      staticSecretName,
+			Namespace: s.framework.Namespace.Name,
+		},
+		StringData: map[string]string{
+			credentialKeyClientID:     s.clientID,
+			credentialKeyClientSecret: s.clientSecret,
+		},
+	}
+	err := s.framework.CRClient.Create(GinkgoT().Context(), azureCreds)
+	// Ignore AlreadyExists error since CreateSecretStore() might have already created this secret
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		Expect(err).ToNot(HaveOccurred())
+	}
+	secretStore := &esv1.SecretStore{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      s.framework.Namespace.Name + "-new-sdk",
+			Namespace: s.framework.Namespace.Name,
+		},
+		Spec: esv1.SecretStoreSpec{
+			Provider: &esv1.SecretStoreProvider{
+				AzureKV: newProviderWithStaticCredentialsNewSDK(s.tenantID, s.vaultURL, staticSecretName),
+			},
+		},
+	}
+	err = s.framework.CRClient.Create(GinkgoT().Context(), secretStore)
 	Expect(err).ToNot(HaveOccurred())
 }
 
@@ -309,20 +364,48 @@ func (s *azureProvider) CreateReferentSecretStore() {
 			credentialKeyClientSecret: s.clientSecret,
 		},
 	}
-	err := s.framework.CRClient.Create(context.Background(), azureCreds)
+	err := s.framework.CRClient.Create(GinkgoT().Context(), azureCreds)
 	Expect(err).ToNot(HaveOccurred())
-	secretStore := &esv1beta1.ClusterSecretStore{
+	secretStore := &esv1.ClusterSecretStore{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      referentAuthName(s.framework),
 			Namespace: s.framework.Namespace.Name,
 		},
-		Spec: esv1beta1.SecretStoreSpec{
-			Provider: &esv1beta1.SecretStoreProvider{
+		Spec: esv1.SecretStoreSpec{
+			Provider: &esv1.SecretStoreProvider{
 				AzureKV: newProviderWithStaticCredentials(s.tenantID, s.vaultURL, referentSecretName),
 			},
 		},
 	}
-	err = s.framework.CRClient.Create(context.Background(), secretStore)
+	err = s.framework.CRClient.Create(GinkgoT().Context(), secretStore)
+	Expect(err).ToNot(HaveOccurred())
+}
+
+func (s *azureProvider) CreateReferentSecretStoreNewSDK() {
+	azureCreds := &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      referentSecretName + "-new-sdk",
+			Namespace: s.framework.Namespace.Name,
+		},
+		StringData: map[string]string{
+			credentialKeyClientID:     s.clientID,
+			credentialKeyClientSecret: s.clientSecret,
+		},
+	}
+	err := s.framework.CRClient.Create(GinkgoT().Context(), azureCreds)
+	Expect(err).ToNot(HaveOccurred())
+	secretStore := &esv1.ClusterSecretStore{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      referentAuthName(s.framework) + "-new-sdk",
+			Namespace: s.framework.Namespace.Name,
+		},
+		Spec: esv1.SecretStoreSpec{
+			Provider: &esv1.SecretStoreProvider{
+				AzureKV: newProviderWithStaticCredentialsNewSDK(s.tenantID, s.vaultURL, referentSecretName+"-new-sdk"),
+			},
+		},
+	}
+	err = s.framework.CRClient.Create(GinkgoT().Context(), secretStore)
 	Expect(err).ToNot(HaveOccurred())
 }
 
@@ -331,34 +414,34 @@ func referentAuthName(f *framework.Framework) string {
 }
 
 func (s *azureProvider) CreateSecretStoreWithWI() {
-	authType := esv1beta1.AzureWorkloadIdentity
+	authType := esv1.AzureWorkloadIdentity
 	namespace := "external-secrets-operator"
-	ClusterSecretStore := &esv1beta1.ClusterSecretStore{
+	ClusterSecretStore := &esv1.ClusterSecretStore{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: s.framework.Namespace.Name,
 		},
-		Spec: esv1beta1.SecretStoreSpec{
-			Provider: &esv1beta1.SecretStoreProvider{
+		Spec: esv1.SecretStoreSpec{
+			Provider: &esv1.SecretStoreProvider{
 				AzureKV: newProviderWithServiceAccount(s.tenantID, s.vaultURL, authType, workloadIdentityServiceAccountNme, &namespace),
 			},
 		},
 	}
-	err := s.framework.CRClient.Create(context.Background(), ClusterSecretStore)
+	err := s.framework.CRClient.Create(GinkgoT().Context(), ClusterSecretStore)
 	Expect(err).ToNot(HaveOccurred())
 }
 
 func (s *azureProvider) CreateReferentSecretStoreWithWI() {
-	authType := esv1beta1.AzureWorkloadIdentity
-	ClusterSecretStore := &esv1beta1.ClusterSecretStore{
+	authType := esv1.AzureWorkloadIdentity
+	ClusterSecretStore := &esv1.ClusterSecretStore{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: referentAuthName(s.framework),
 		},
-		Spec: esv1beta1.SecretStoreSpec{
-			Provider: &esv1beta1.SecretStoreProvider{
+		Spec: esv1.SecretStoreSpec{
+			Provider: &esv1.SecretStoreProvider{
 				AzureKV: newProviderWithServiceAccount(s.tenantID, s.vaultURL, authType, workloadIdentityServiceAccountNme, nil),
 			},
 		},
 	}
-	err := s.framework.CRClient.Create(context.Background(), ClusterSecretStore)
+	err := s.framework.CRClient.Create(GinkgoT().Context(), ClusterSecretStore)
 	Expect(err).ToNot(HaveOccurred())
 }

@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,14 +23,14 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
 	"github.com/external-secrets/external-secrets/pkg/provider/conjur/util"
-	"github.com/external-secrets/external-secrets/pkg/utils"
 )
 
 // ValidateStore validates the store.
-func (p *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnings, error) {
-	prov, err := util.GetConjurProvider(store)
+func (p *Provider) ValidateStore(store esv1.GenericStore) (admission.Warnings, error) {
+	prov, err := conjurutil.GetConjurProvider(store)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +60,7 @@ func (p *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnin
 	return nil, nil
 }
 
-func validateAPIKeyStore(store esv1beta1.GenericStore, auth esv1beta1.ConjurAPIKey) error {
+func validateAPIKeyStore(store esv1.GenericStore, auth esv1.ConjurAPIKey) error {
 	if auth.Account == "" {
 		return errors.New("missing Auth.ApiKey.Account")
 	}
@@ -68,16 +70,16 @@ func validateAPIKeyStore(store esv1beta1.GenericStore, auth esv1beta1.ConjurAPIK
 	if auth.APIKeyRef == nil {
 		return errors.New("missing Auth.Apikey.ApiKeyRef")
 	}
-	if err := utils.ValidateReferentSecretSelector(store, *auth.UserRef); err != nil {
+	if err := esutils.ValidateReferentSecretSelector(store, *auth.UserRef); err != nil {
 		return fmt.Errorf("invalid Auth.Apikey.UserRef: %w", err)
 	}
-	if err := utils.ValidateReferentSecretSelector(store, *auth.APIKeyRef); err != nil {
+	if err := esutils.ValidateReferentSecretSelector(store, *auth.APIKeyRef); err != nil {
 		return fmt.Errorf("invalid Auth.Apikey.ApiKeyRef: %w", err)
 	}
 	return nil
 }
 
-func validateJWTStore(store esv1beta1.GenericStore, auth esv1beta1.ConjurJWT) error {
+func validateJWTStore(store esv1.GenericStore, auth esv1.ConjurJWT) error {
 	if auth.Account == "" {
 		return errors.New("missing Auth.Jwt.Account")
 	}
@@ -88,12 +90,12 @@ func validateJWTStore(store esv1beta1.GenericStore, auth esv1beta1.ConjurJWT) er
 		return errors.New("must specify Auth.Jwt.SecretRef or Auth.Jwt.ServiceAccountRef")
 	}
 	if auth.SecretRef != nil {
-		if err := utils.ValidateReferentSecretSelector(store, *auth.SecretRef); err != nil {
+		if err := esutils.ValidateReferentSecretSelector(store, *auth.SecretRef); err != nil {
 			return fmt.Errorf("invalid Auth.Jwt.SecretRef: %w", err)
 		}
 	}
 	if auth.ServiceAccountRef != nil {
-		if err := utils.ValidateReferentServiceAccountSelector(store, *auth.ServiceAccountRef); err != nil {
+		if err := esutils.ValidateReferentServiceAccountSelector(store, *auth.ServiceAccountRef); err != nil {
 			return fmt.Errorf("invalid Auth.Jwt.ServiceAccountRef: %w", err)
 		}
 	}

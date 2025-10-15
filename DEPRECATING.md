@@ -9,7 +9,7 @@ secret management systems like [AWS Secrets
 Manager](https://aws.amazon.com/secrets-manager/), [HashiCorp
 Vault](https://www.vaultproject.io/), [Google Secrets
 Manager](https://cloud.google.com/secret-manager), [Azure Key
-Vault](https://azure.microsoft.com/en-us/services/key-vault/), [CyberArk Conjur](https://www.conjur.org) and many more. The
+Vault](https://azure.microsoft.com/en-us/services/key-vault/), [CyberArk Secrets Manager](https://www.cyberark.com/products/secrets-management/) and many more. The
 operator reads information from external APIs and automatically injects the
 values into a [Kubernetes
 Secret](https://kubernetes.io/docs/concepts/configuration/secret/).
@@ -18,7 +18,7 @@ Secret](https://kubernetes.io/docs/concepts/configuration/secret/).
 
 We follow the [Kubernetes Deprecation Policy](https://kubernetes.io/docs/reference/using-api/deprecation-policy/) and [API Versioning Scheme](https://kubernetes.io/docs/reference/using-api/#api-versioning): alpha, beta, GA.
 
-The project is currently in `beta` state. Please try the `beta` features and provide feedback. After the features exits beta, it may not be practical to make more changes.
+The project is currently in `beta` state. Please try the `beta` features and provide feedback. After the features exit beta, it may not be practical to make more changes.
 
 * alpha
     * The support for a feature may be dropped at any time without notice.
@@ -49,7 +49,8 @@ We define the following scope that is covered by our deprecation policy. We foll
 ### Non-Scope
 Everything not listed in scope is not subject to this deprecation policy and it is subject to breaking changes, updates at any point in time, and deprecation - **as long as it follows the Deprecation Process listed below**.
 
-This includes, but isn't limited to :
+This includes, but isn't limited to:
+
 * Any feature / specific behavior not in Scope.
 * Source code imports
 * Helm Charts
@@ -72,7 +73,7 @@ Any maintainer may propose deprecating a feature, component, or behavior (both i
 
 The proposal must clearly outline the rationale for deprecation, the impact on users, and any alternatives, if such.
 
-The proposal must be formalized by submiting a `design` document as a Pull Request.
+The proposal must be formalized by submitting a `design` document as a Pull Request.
 
 ### Showcase to Maintainers
 

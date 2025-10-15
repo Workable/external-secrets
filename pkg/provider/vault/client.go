@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,23 +30,23 @@ import (
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
+	"github.com/external-secrets/external-secrets/pkg/esutils/resolvers"
 	"github.com/external-secrets/external-secrets/pkg/provider/vault/util"
-	"github.com/external-secrets/external-secrets/pkg/utils"
-	"github.com/external-secrets/external-secrets/pkg/utils/resolvers"
 )
 
-var _ esv1beta1.SecretsClient = &client{}
+var _ esv1.SecretsClient = &client{}
 
 type client struct {
 	kube      kclient.Client
-	store     *esv1beta1.VaultProvider
+	store     *esv1.VaultProvider
 	log       logr.Logger
 	corev1    typedcorev1.CoreV1Interface
-	client    util.Client
-	auth      util.Auth
-	logical   util.Logical
-	token     util.Token
+	client    vaultutil.Client
+	auth      vaultutil.Auth
+	logical   vaultutil.Logical
+	token     vaultutil.Token
 	namespace string
 	storeKind string
 }
@@ -55,7 +57,7 @@ func (c *client) newConfig(ctx context.Context) (*vault.Config, error) {
 
 	if len(c.store.CABundle) != 0 || c.store.CAProvider != nil {
 		caCertPool := x509.NewCertPool()
-		ca, err := utils.FetchCACertFromSource(ctx, utils.CreateCertOpts{
+		ca, err := esutils.FetchCACertFromSource(ctx, esutils.CreateCertOpts{
 			CABundle:   c.store.CABundle,
 			CAProvider: c.store.CAProvider,
 			StoreKind:  c.storeKind,

@@ -1,10 +1,11 @@
 /*
-Copyright 2020 The cert-manager Authors.
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/ginkgo/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -68,6 +69,7 @@ spec:
       selfHeal: true
     syncOptions:
     - CreateNamespace=true
+    - ServerSideApply=true
   source:
     chart: %s
     repoURL: %s
@@ -117,14 +119,14 @@ func (c *ArgoCDApplication) Install() error {
 	if err != nil {
 		return fmt.Errorf("unable to unmarshal json into unstructured: %w", err)
 	}
-	_, err = c.dc.Resource(argoApp).Namespace(c.Namespace).Create(context.Background(), us, metav1.CreateOptions{})
+	_, err = c.dc.Resource(argoApp).Namespace(c.Namespace).Create(GinkgoT().Context(), us, metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("unable to create argo app: %w", err)
 	}
 
 	// wait for app to become ready
-	err = wait.PollImmediate(time.Second*5, time.Minute*10, func() (bool, error) {
-		us, err = c.dc.Resource(argoApp).Namespace(c.Namespace).Get(context.Background(), c.Name, metav1.GetOptions{})
+	err = wait.PollUntilContextTimeout(GinkgoT().Context(), time.Second*5, time.Minute*10, true, func(ctx context.Context) (bool, error) {
+		us, err = c.dc.Resource(argoApp).Namespace(c.Namespace).Get(ctx, c.Name, metav1.GetOptions{})
 		if err != nil {
 			return false, err
 		}
@@ -144,21 +146,23 @@ func (c *ArgoCDApplication) Install() error {
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	client := &http.Client{Transport: tr}
-	return wait.PollImmediate(time.Second, time.Minute*5, func() (bool, error) {
-		const payload = `{"apiVersion": "apiextensions.k8s.io/v1","kind": "ConversionReview","request": {}}`
-		res, err := client.Post("https://external-secrets-webhook.external-secrets.svc.cluster.local/convert", "application/json", bytes.NewBufferString(payload))
+	return wait.PollUntilContextTimeout(GinkgoT().Context(), time.Second, time.Minute*5, true, func(ctx context.Context) (bool, error) {
+		const payload = `{"apiVersion": "admission.k8s.io/v1","kind": "AdmissionReview","request": {"uid": "test","kind": {"group": "external-secrets.io","version": "v1","kind": "ExternalSecret"}, "resource": {"group": "external-secrets.io","version": "v1","kind": "ExternalSecret"},"dryRun": true, "operation": "CREATE", "userInfo":{"username":"test","uid":"test","groups":[],"extra":{}}}}`
+		res, err := client.Post("https://external-secrets-webhook.external-secrets.svc.cluster.local/validate-external-secrets-io-v1-externalsecret", "application/json", bytes.NewBufferString(payload))
 		if err != nil {
 			return false, nil
 		}
-		defer res.Body.Close()
-		ginkgo.GinkgoWriter.Printf("conversion res: %d", res.StatusCode)
+		defer func() {
+			_ = res.Body.Close()
+		}()
+		GinkgoWriter.Printf("webhook res: %d", res.StatusCode)
 		return res.StatusCode == http.StatusOK, nil
 	})
 }
 
 // Uninstall removes the chart aswell as the repo.
 func (c *ArgoCDApplication) Uninstall() error {
-	err := c.dc.Resource(argoApp).Namespace(c.Namespace).Delete(context.Background(), c.Name, metav1.DeleteOptions{})
+	err := c.dc.Resource(argoApp).Namespace(c.Namespace).Delete(GinkgoT().Context(), c.Name, metav1.DeleteOptions{})
 	if err != nil {
 		return err
 	}

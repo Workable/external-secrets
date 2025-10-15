@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,7 +28,7 @@ import (
 	ksm "github.com/keeper-security/secrets-manager-go/core"
 	corev1 "k8s.io/api/core/v1"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 )
 
 const (
@@ -51,18 +53,25 @@ const (
 
 	externalSecretType = "externalSecrets"
 	secretType         = "secret"
-	LoginType          = "login"
-	LoginTypeExpr      = "login|username"
-	PasswordType       = "password"
-	URLTypeExpr        = "url|baseurl"
-	URLType            = "url"
+	// LoginType represents the login field type.
+	LoginType = "login"
+	// LoginTypeExpr is the regex expression for matching login/username fields.
+	LoginTypeExpr = "login|username"
+	// PasswordType represents the password field type.
+	PasswordType = "password"
+	// URLTypeExpr is the regex expression for matching URL/baseurl fields.
+	URLTypeExpr = "url|baseurl"
+	// URLType represents the URL field type.
+	URLType = "url"
 )
 
+// Client represents a KeeperSecurity client that can interact with the KeeperSecurity API.
 type Client struct {
 	ksmClient SecurityClient
 	folderID  string
 }
 
+// SecurityClient defines the interface for interacting with KeeperSecurity's API.
 type SecurityClient interface {
 	GetSecrets(filter []string) ([]*ksm.Record, error)
 	GetSecretByTitle(recordTitle string) (*ksm.Record, error)
@@ -72,22 +81,26 @@ type SecurityClient interface {
 	Save(record *ksm.Record) error
 }
 
+// Field represents a KeeperSecurity field with its type and value.
 type Field struct {
 	Type  string `json:"type"`
 	Value []any  `json:"value"`
 }
 
+// CustomField represents a custom field in KeeperSecurity with its type, label and value.
 type CustomField struct {
 	Type  string `json:"type"`
 	Label string `json:"label"`
 	Value []any  `json:"value"`
 }
 
+// File represents a file stored in KeeperSecurity with its title and content.
 type File struct {
 	Title   string `json:"type"`
 	Content string `json:"content"`
 }
 
+// Secret represents a KeeperSecurity secret with its metadata and content.
 type Secret struct {
 	Title  string        `json:"title"`
 	Type   string        `json:"type"`
@@ -96,11 +109,13 @@ type Secret struct {
 	Files  []File        `json:"files"`
 }
 
-func (c *Client) Validate() (esv1beta1.ValidationResult, error) {
-	return esv1beta1.ValidationResultReady, nil
+// Validate performs validation of the Keeper Security client configuration.
+func (c *Client) Validate() (esv1.ValidationResult, error) {
+	return esv1.ValidationResultReady, nil
 }
 
-func (c *Client) GetSecret(_ context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) ([]byte, error) {
+// GetSecret retrieves a secret from Keeper Security by its ID.
+func (c *Client) GetSecret(_ context.Context, ref esv1.ExternalSecretDataRemoteRef) ([]byte, error) {
 	record, err := c.findSecretByID(ref.Key)
 	if err != nil {
 		return nil, err
@@ -109,11 +124,14 @@ func (c *Client) GetSecret(_ context.Context, ref esv1beta1.ExternalSecretDataRe
 	if err != nil {
 		return nil, err
 	}
+	// GetSecret retrieves a secret from Keeper Security by its ID.
+	// If ref.Property is specified, it returns only that property's value.
 
 	return secret.getItem(ref)
 }
 
-func (c *Client) GetSecretMap(_ context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
+// GetSecretMap retrieves a secret from Keeper Security and returns it as a map.
+func (c *Client) GetSecretMap(_ context.Context, ref esv1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
 	record, err := c.findSecretByID(ref.Key)
 	if err != nil {
 		return nil, err
@@ -122,11 +140,14 @@ func (c *Client) GetSecretMap(_ context.Context, ref esv1beta1.ExternalSecretDat
 	if err != nil {
 		return nil, err
 	}
+	// GetSecretMap retrieves a secret from Keeper Security and returns it as a map.
+	// If ref.Property is specified, it returns only that property as a map entry.
 
 	return secret.getItems(ref)
 }
 
-func (c *Client) GetAllSecrets(_ context.Context, ref esv1beta1.ExternalSecretFind) (map[string][]byte, error) {
+// GetAllSecrets retrieves all secrets from Keeper Security that match the given criteria.
+func (c *Client) GetAllSecrets(_ context.Context, ref esv1.ExternalSecretFind) (map[string][]byte, error) {
 	if ref.Tags != nil {
 		return nil, errors.New(errTagsNotImplemented)
 	}
@@ -135,6 +156,8 @@ func (c *Client) GetAllSecrets(_ context.Context, ref esv1beta1.ExternalSecretFi
 	}
 	secretData := make(map[string][]byte)
 	records, err := c.findSecrets()
+	// GetAllSecrets retrieves all secrets from Keeper Security that match the given criteria.
+	// Currently supports filtering by name pattern only.
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +173,7 @@ func (c *Client) GetAllSecrets(_ context.Context, ref esv1beta1.ExternalSecretFi
 		if !match {
 			continue
 		}
-		secretData[secret.Title], err = secret.getItem(esv1beta1.ExternalSecretDataRemoteRef{})
+		secretData[secret.Title], err = secret.getItem(esv1.ExternalSecretDataRemoteRef{})
 		if err != nil {
 			return nil, err
 		}
@@ -159,19 +182,24 @@ func (c *Client) GetAllSecrets(_ context.Context, ref esv1beta1.ExternalSecretFi
 	return secretData, nil
 }
 
+// Close implements cleanup operations for the Keeper Security client.
 func (c *Client) Close(_ context.Context) error {
 	return nil
 }
 
-func (c *Client) PushSecret(_ context.Context, secret *corev1.Secret, data esv1beta1.PushSecretData) error {
+// PushSecret creates or updates a secret in Keeper Security.
+func (c *Client) PushSecret(_ context.Context, secret *corev1.Secret, data esv1.PushSecretData) error {
 	if data.GetSecretKey() == "" {
 		return errors.New("pushing the whole secret is not yet implemented")
 	}
 
+	// Close implements cleanup operations for the Keeper Security client
 	value := secret.Data[data.GetSecretKey()]
 	parts, err := c.buildSecretNameAndKey(data)
 	if err != nil {
 		return err
+		// PushSecret creates or updates a secret in Keeper Security.
+		// Currently only supports pushing individual secret values, not entire secrets.
 	}
 
 	record, err := c.findSecretByName(parts[0])
@@ -180,18 +208,18 @@ func (c *Client) PushSecret(_ context.Context, secret *corev1.Secret, data esv1b
 	}
 
 	if record != nil {
-		if record.Type() == externalSecretType {
-			return c.updateSecret(record, parts[1], value)
-		} else {
+		if record.Type() != externalSecretType {
 			return fmt.Errorf(errInvalidSecretType, externalSecretType, record.Title(), record.Type())
 		}
-	} else {
-		_, err = c.createSecret(parts[0], parts[1], value)
-		return err
+		return c.updateSecret(record, parts[1], value)
 	}
+
+	_, err = c.createSecret(parts[0], parts[1], value)
+	return err
 }
 
-func (c *Client) DeleteSecret(_ context.Context, remoteRef esv1beta1.PushSecretRemoteRef) error {
+// DeleteSecret removes a secret from Keeper Security.
+func (c *Client) DeleteSecret(_ context.Context, remoteRef esv1.PushSecretRemoteRef) error {
 	parts, err := c.buildSecretNameAndKey(remoteRef)
 	if err != nil {
 		return err
@@ -200,6 +228,8 @@ func (c *Client) DeleteSecret(_ context.Context, remoteRef esv1beta1.PushSecretR
 	if err != nil {
 		return err
 	} else if secret == nil {
+		// DeleteSecret removes a secret from Keeper Security.
+		// Returns nil if the secret doesn't exist (already deleted).
 		return nil // not found == already deleted (success)
 	}
 
@@ -210,15 +240,18 @@ func (c *Client) DeleteSecret(_ context.Context, remoteRef esv1beta1.PushSecretR
 	return err
 }
 
-func (c *Client) SecretExists(_ context.Context, _ esv1beta1.PushSecretRemoteRef) (bool, error) {
+// SecretExists checks if a secret exists in Keeper Security.
+func (c *Client) SecretExists(_ context.Context, _ esv1.PushSecretRemoteRef) (bool, error) {
 	return false, errors.New("not implemented")
 }
 
-func (c *Client) buildSecretNameAndKey(remoteRef esv1beta1.PushSecretRemoteRef) ([]string, error) {
+func (c *Client) buildSecretNameAndKey(remoteRef esv1.PushSecretRemoteRef) ([]string, error) {
 	parts := strings.Split(remoteRef.GetRemoteKey(), "/")
 	if len(parts) != 2 {
 		return nil, fmt.Errorf(errInvalidRemoteRefKey, remoteRef.GetRemoteKey())
 	}
+	// SecretExists checks if a secret exists in Keeper Security.
+	// This method is not implemented yet.
 
 	return parts, nil
 }
@@ -315,9 +348,6 @@ func (c *Client) findSecretByID(id string) (*ksm.Record, error) {
 	if len(records) == 0 {
 		return nil, errors.New(errKeeperSecurityNoSecretsFound)
 	}
-	if len(records) > 1 {
-		return nil, fmt.Errorf(errKeeperSecuritySecretNotUnique, id)
-	}
 
 	return records[0], nil
 }
@@ -389,7 +419,7 @@ func (s *Secret) addFiles(keeperFiles []*ksm.KeeperFile) {
 	}
 }
 
-func (s *Secret) getItem(ref esv1beta1.ExternalSecretDataRemoteRef) ([]byte, error) {
+func (s *Secret) getItem(ref esv1.ExternalSecretDataRemoteRef) ([]byte, error) {
 	if ref.Property != "" {
 		return s.getProperty(ref.Property)
 	}
@@ -398,7 +428,7 @@ func (s *Secret) getItem(ref esv1beta1.ExternalSecretDataRemoteRef) ([]byte, err
 	return []byte(secret), err
 }
 
-func (s *Secret) getItems(ref esv1beta1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
+func (s *Secret) getItems(ref esv1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
 	secretData := make(map[string][]byte)
 	if ref.Property != "" {
 		value, err := s.getProperty(ref.Property)
@@ -427,16 +457,16 @@ func (s *Secret) getItems(ref esv1beta1.ExternalSecretDataRemoteRef) (map[string
 func getFieldValue(value []any) []byte {
 	if len(value) < 1 {
 		return []byte{}
-	} else if len(value) == 1 {
+	}
+	if len(value) == 1 {
 		res, _ := json.Marshal(value[0])
 		if str, ok := value[0].(string); ok {
 			res = []byte(str)
 		}
 		return res
-	} else {
-		res, _ := json.Marshal(value)
-		return res
 	}
+	res, _ := json.Marshal(value)
+	return res
 }
 
 func (s *Secret) getField(key string) ([]byte, error) {

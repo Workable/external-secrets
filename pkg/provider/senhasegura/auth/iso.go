@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package auth provides authentication mechanisms for senhasegura provider in External Secrets Operator
 package auth
 
 import (
@@ -27,12 +30,13 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
-	"github.com/external-secrets/external-secrets/pkg/utils/resolvers"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	"github.com/external-secrets/external-secrets/pkg/esutils/resolvers"
 )
 
+// ISOInterface defines methods for senhasegura ISO authentication.
 type ISOInterface interface {
-	IsoSessionFromSecretRef(ctx context.Context, provider *esv1beta1.SenhaseguraProvider, store esv1beta1.GenericStore, kube client.Client, namespace string) (*SenhaseguraIsoSession, error)
+	IsoSessionFromSecretRef(ctx context.Context, provider *esv1.SenhaseguraProvider, store esv1.GenericStore, kube client.Client, namespace string) (*SenhaseguraIsoSession, error)
 	GetIsoToken(clientID, clientSecret, systemURL string, ignoreSslCertificate bool) (token string, err error)
 }
 
@@ -65,7 +69,7 @@ var (
 /*
 Authenticate check required authentication method based on provider spec and initialize ISO OAuth2 session.
 */
-func Authenticate(ctx context.Context, store esv1beta1.GenericStore, provider *esv1beta1.SenhaseguraProvider, kube client.Client, namespace string) (isoSession *SenhaseguraIsoSession, err error) {
+func Authenticate(ctx context.Context, store esv1.GenericStore, provider *esv1.SenhaseguraProvider, kube client.Client, namespace string) (isoSession *SenhaseguraIsoSession, err error) {
 	isoSession, err = isoSession.IsoSessionFromSecretRef(ctx, provider, store, kube, namespace)
 	if err != nil {
 		return nil, err
@@ -76,7 +80,7 @@ func Authenticate(ctx context.Context, store esv1beta1.GenericStore, provider *e
 /*
 IsoSessionFromSecretRef initialize an ISO OAuth2 flow with .spec.provider.senhasegura.auth.isoSecretRef parameters.
 */
-func (s *SenhaseguraIsoSession) IsoSessionFromSecretRef(ctx context.Context, provider *esv1beta1.SenhaseguraProvider, store esv1beta1.GenericStore, kube client.Client, namespace string) (*SenhaseguraIsoSession, error) {
+func (s *SenhaseguraIsoSession) IsoSessionFromSecretRef(ctx context.Context, provider *esv1.SenhaseguraProvider, store esv1.GenericStore, kube client.Client, namespace string) (*SenhaseguraIsoSession, error) {
 	secret, err := resolvers.SecretKeyRef(
 		ctx,
 		kube,
@@ -132,7 +136,9 @@ func (s *SenhaseguraIsoSession) GetIsoToken(clientID, clientSecret, systemURL st
 	if err != nil {
 		return "", errCannotDoRequest
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != 200 {
 		return "", errInvalidHTTPCode

@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package keepersecurity implements a provider for Keeper Security secrets management service
 package keepersecurity
 
 import (
@@ -24,9 +27,9 @@ import (
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
-	"github.com/external-secrets/external-secrets/pkg/utils"
-	"github.com/external-secrets/external-secrets/pkg/utils/resolvers"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
+	"github.com/external-secrets/external-secrets/pkg/esutils/resolvers"
 )
 
 const (
@@ -35,29 +38,29 @@ const (
 	errKeeperSecurityNilSpec                       = "nil spec"
 	errKeeperSecurityNilSpecProvider               = "nil spec.provider"
 	errKeeperSecurityNilSpecProviderKeeperSecurity = "nil spec.provider.keepersecurity"
-	errKeeperSecurityStoreMissingAuth              = "missing: spec.provider.keepersecurity.auth"
 	errKeeperSecurityStoreMissingFolderID          = "missing: spec.provider.keepersecurity.folderID"
 )
 
-// Provider implements the necessary NewClient() and ValidateStore() funcs.
+// Provider implements the necessary NewClient() and ValidateStore() funcs for Keeper Security.
 type Provider struct{}
 
 // https://github.com/external-secrets/external-secrets/issues/644
-var _ esv1beta1.SecretsClient = &Client{}
-var _ esv1beta1.Provider = &Provider{}
+var _ esv1.SecretsClient = &Client{}
+var _ esv1.Provider = &Provider{}
 
 func init() {
-	esv1beta1.Register(&Provider{}, &esv1beta1.SecretStoreProvider{
-		KeeperSecurity: &esv1beta1.KeeperSecurityProvider{},
-	})
+	esv1.Register(&Provider{}, &esv1.SecretStoreProvider{
+		KeeperSecurity: &esv1.KeeperSecurityProvider{},
+	}, esv1.MaintenanceStatusMaintained)
 }
 
-func (p *Provider) Capabilities() esv1beta1.SecretStoreCapabilities {
-	return esv1beta1.SecretStoreReadWrite
+// Capabilities returns the provider's supported capabilities (ReadWrite).
+func (p *Provider) Capabilities() esv1.SecretStoreCapabilities {
+	return esv1.SecretStoreReadWrite
 }
 
-// NewClient constructs a GCP Provider.
-func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, kube kclient.Client, namespace string) (esv1beta1.SecretsClient, error) {
+// NewClient constructs a new Keeper Security client with the provided store configuration.
+func (p *Provider) NewClient(ctx context.Context, store esv1.GenericStore, kube kclient.Client, namespace string) (esv1.SecretsClient, error) {
 	storeSpec := store.GetSpec()
 	if storeSpec == nil || storeSpec.Provider == nil || storeSpec.Provider.KeeperSecurity == nil {
 		return nil, fmt.Errorf(errKeeperSecurityStore, store)
@@ -82,7 +85,8 @@ func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, 
 	return client, nil
 }
 
-func (p *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnings, error) {
+// ValidateStore validates the Keeper Security SecretStore configuration.
+func (p *Provider) ValidateStore(store esv1.GenericStore) (admission.Warnings, error) {
 	if store == nil {
 		return nil, fmt.Errorf(errKeeperSecurityStore, store)
 	}
@@ -100,8 +104,8 @@ func (p *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnin
 	// check mandatory fields
 	config := spc.Provider.KeeperSecurity
 
-	if err := utils.ValidateSecretSelector(store, config.Auth); err != nil {
-		return nil, errors.New(errKeeperSecurityStoreMissingAuth)
+	if err := esutils.ValidateSecretSelector(store, config.Auth); err != nil {
+		return nil, fmt.Errorf("error validating secret selector: %w", err)
 	}
 	if config.FolderID == "" {
 		return nil, errors.New(errKeeperSecurityStoreMissingFolderID)
@@ -110,7 +114,7 @@ func (p *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnin
 	return nil, nil
 }
 
-func getKeeperSecurityAuth(ctx context.Context, store *esv1beta1.KeeperSecurityProvider, kube kclient.Client, storeKind, namespace string) (string, error) {
+func getKeeperSecurityAuth(ctx context.Context, store *esv1.KeeperSecurityProvider, kube kclient.Client, storeKind, namespace string) (string, error) {
 	return resolvers.SecretKeyRef(
 		ctx,
 		kube,

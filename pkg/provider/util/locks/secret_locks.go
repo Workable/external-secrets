@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package locks provides locking mechanisms to prevent lost updates when accessing secrets.
 package locks
 
 import (
@@ -21,12 +24,16 @@ import (
 )
 
 var (
+	// ErrConflict is returned when a secret is locked and cannot be accessed.
 	ErrConflict = errors.New("unable to access secret since it is locked")
 
 	sharedLocks = &secretLocks{}
 )
 
-func TryLock(providerName, secretName string) (func(), error) {
+// TryLock tries to acquire a lock for a given provider and secret.
+// It returns an unlock function to release the lock and an error if the lock
+// could not be acquired.
+func TryLock(providerName, secretName string) (unlock func(), _ error) {
 	key := fmt.Sprintf("%s#%s", providerName, secretName)
 	unlockFunc, ok := sharedLocks.tryLock(key)
 	if !ok {

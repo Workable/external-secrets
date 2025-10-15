@@ -10,55 +10,29 @@ When doing a release it's best to start with  with the ["Create Release" issue t
 Otherwise the `latest` documentation will point to the older version. Also avoid to release both versions at the same time to avoid race conditions in the CI pipeline (updating docs, GitHub Release, helm chart release).
 
 1. Run `Create Release` Action to create a new release, pass in the desired version number to release.
-    1. choose the right `branch` to execute the action: use `main` when creating a new release. Use `release-x.y` when you want to bump a LTS release.
-    1. ⚠️ make sure that CI on the relevant branch has completed the docker build/push jobs. Otherwise an old image will be promoted.
-1. GitHub Release, Changelog will be created by the `release.yml` workflow which also promotes the container image.
-1. update Helm Chart, see below
-1. update OLM bundle, see [helm-operator docs](https://github.com/external-secrets/external-secrets-helm-operator/blob/main/docs/release.md#operatorhubio)
+    1. choose the right `branch` to execute the action: use `main` when creating a new release.
+    2. ⚠️ make sure that CI on the relevant branch has completed the docker build/push jobs. Otherwise an old image will be promoted.
+2. GitHub Release, Changelog will be created by the `release.yml` workflow which also promotes the container image.
+3. update Helm Chart, see below
 
 ## Release Helm Chart
 
-1. Update `version` and/or `appVersion` in `Chart.yaml` and run `make helm.docs helm.update.appversion helm.test.update helm.test`
-1. push to branch and open pr
-1. run `/ok-to-test-managed` commands for all cloud providers
-1. merge PR if everyhing is green
-1. CI picks up the new chart version and creates a new GitHub Release for it
-1. create/merge into release branch
-    1. on a `minor` release: create a new branch `release-x.y`
-    1. on a `patch` release: merge main into `release-x.y`
+1. Update `version` and/or `appVersion` in `Chart.yaml` and run `make helm.docs helm.update.appversion helm.test.update docs.update test.crds.update`
+2. push to branch and open pr
+3. run `/ok-to-test-managed` commands for all cloud providers
+4. merge PR if everything is green
+5. CI picks up the new chart version and creates a new GitHub Release for it
 
-## Release OLM Bundle
+The following things are updated with those commands:
+1. Update helm docs
+2. Update the apiVersion in the snapshots for the helm tests
+3. Update all the helm tests with potential added values
+4. Update the stability docs with the latest minor version if exists
+5. Update the CRD conformance tests
 
-In order to make the latest release available to [OperatorHub.io](https://operatorhub.io/) we need to create a bundle and open a PR in the [community-operators](https://github.com/k8s-operatorhub/community-operators/) repository.
+The branch to create this release should be `release-chart-x.y.z`. Though be aware that release branches are _immutable_.
+This means that if there is anything that needs to be fixed, a new branch will need to be created.
 
-To create a bundle first increment the `VERSION` in the Makefile as described above. Then run the following commands in the root of the repository:
-
-```bash
-# clone repo
-git clone https://github.com/external-secrets/external-secrets-helm-operator
-cd external-secrets-helm-operator
-
-# bump version
-export VERSION=x.y.z
-sed -i "s/^VERSION ?= .*/VERSION ?= ${VERSION}/" Makefile
-
-# prep release
-make prepare-stable-release ATTACH_IMAGE_DIGESTS=0
-```
-
-Check the generated files in the `bundle/` directory. If they look good add & commit them, open a PR against this repository. You can always use the [OperatorHub.io/preview](https://operatorhub.io/preview) page to preview the generated CSV.
-
-```bash
-git status
-git add .
-git commit -s -m "chore: bump version xyz"
-git push
-```
-
-Once the PR is merged and the image build job on `main` has completed, we need create a pull request against both community-operators repositories. There's a make target that does the heavy lifting for you:
-```bash
-make attach-image-digests
-make bundle-operatorhub
-```
-
-This command will add/commit/push and open pull requests in the respective repositories.
+Also, keep an eye on `main` so nothing is merged while the chart branch is running the e2e tests. If that happens,
+the chart PR CANNOT be merged because we don't allow not up-to-date pull requests to be merged. And you can't update
+because the branch is immutable.

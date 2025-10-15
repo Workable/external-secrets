@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,8 +26,8 @@ import (
 	ksm "github.com/keeper-security/secrets-manager-go/core"
 	corev1 "k8s.io/api/core/v1"
 
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	"github.com/external-secrets/external-secrets/apis/externalsecrets/v1alpha1"
-	"github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
 	"github.com/external-secrets/external-secrets/pkg/provider/keepersecurity/fake"
 	testingfake "github.com/external-secrets/external-secrets/pkg/provider/testing/fake"
 )
@@ -53,7 +55,7 @@ func TestClientDeleteSecret(t *testing.T) {
 	}
 	type args struct {
 		ctx       context.Context
-		remoteRef v1beta1.PushSecretRemoteRef
+		remoteRef esv1.PushSecretRemoteRef
 	}
 	tests := []struct {
 		name    string
@@ -146,7 +148,7 @@ func TestClientGetAllSecrets(t *testing.T) {
 	}
 	type args struct {
 		ctx context.Context
-		ref v1beta1.ExternalSecretFind
+		ref esv1.ExternalSecretFind
 	}
 	var path = "path_to_fail"
 	tests := []struct {
@@ -164,7 +166,7 @@ func TestClientGetAllSecrets(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				ref: v1beta1.ExternalSecretFind{
+				ref: esv1.ExternalSecretFind{
 					Tags: map[string]string{
 						"xxx": "yyy",
 					},
@@ -180,7 +182,7 @@ func TestClientGetAllSecrets(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				ref: v1beta1.ExternalSecretFind{
+				ref: esv1.ExternalSecretFind{
 					Path: &path,
 				},
 			},
@@ -198,8 +200,8 @@ func TestClientGetAllSecrets(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				ref: v1beta1.ExternalSecretFind{
-					Name: &v1beta1.FindName{
+				ref: esv1.ExternalSecretFind{
+					Name: &esv1.FindName{
 						RegExp: "record",
 					},
 				},
@@ -223,8 +225,8 @@ func TestClientGetAllSecrets(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				ref: v1beta1.ExternalSecretFind{
-					Name: &v1beta1.FindName{
+				ref: esv1.ExternalSecretFind{
+					Name: &esv1.FindName{
 						RegExp: record0,
 					},
 				},
@@ -260,7 +262,7 @@ func TestClientGetSecret(t *testing.T) {
 	}
 	type args struct {
 		ctx context.Context
-		ref v1beta1.ExternalSecretDataRemoteRef
+		ref esv1.ExternalSecretDataRemoteRef
 	}
 	tests := []struct {
 		name    string
@@ -281,7 +283,7 @@ func TestClientGetSecret(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				ref: v1beta1.ExternalSecretDataRemoteRef{
+				ref: esv1.ExternalSecretDataRemoteRef{
 					Key:      record0,
 					Property: LoginKey,
 				},
@@ -301,7 +303,7 @@ func TestClientGetSecret(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				ref: v1beta1.ExternalSecretDataRemoteRef{
+				ref: esv1.ExternalSecretDataRemoteRef{
 					Key: record0,
 				},
 			},
@@ -320,11 +322,12 @@ func TestClientGetSecret(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				ref: v1beta1.ExternalSecretDataRemoteRef{
+				ref: esv1.ExternalSecretDataRemoteRef{
 					Key: record0,
 				},
 			},
-			wantErr: true,
+			want:    []byte(outputRecord0),
+			wantErr: false,
 		},
 		{
 			name: "Get non existing secret",
@@ -338,7 +341,7 @@ func TestClientGetSecret(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				ref: v1beta1.ExternalSecretDataRemoteRef{
+				ref: esv1.ExternalSecretDataRemoteRef{
 					Key: "record5",
 				},
 			},
@@ -356,7 +359,7 @@ func TestClientGetSecret(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				ref: v1beta1.ExternalSecretDataRemoteRef{
+				ref: esv1.ExternalSecretDataRemoteRef{
 					Key:      record0,
 					Property: "invalid",
 				},
@@ -389,7 +392,7 @@ func TestClientGetSecretMap(t *testing.T) {
 	}
 	type args struct {
 		ctx context.Context
-		ref v1beta1.ExternalSecretDataRemoteRef
+		ref esv1.ExternalSecretDataRemoteRef
 	}
 	tests := []struct {
 		name    string
@@ -410,7 +413,7 @@ func TestClientGetSecretMap(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				ref: v1beta1.ExternalSecretDataRemoteRef{
+				ref: esv1.ExternalSecretDataRemoteRef{
 					Key:      record0,
 					Property: LoginKey,
 				},
@@ -432,7 +435,7 @@ func TestClientGetSecretMap(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				ref: v1beta1.ExternalSecretDataRemoteRef{
+				ref: esv1.ExternalSecretDataRemoteRef{
 					Key: record0,
 				},
 			},
@@ -455,7 +458,7 @@ func TestClientGetSecretMap(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				ref: v1beta1.ExternalSecretDataRemoteRef{
+				ref: esv1.ExternalSecretDataRemoteRef{
 					Key: "record5",
 				},
 			},
@@ -473,7 +476,7 @@ func TestClientGetSecretMap(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				ref: v1beta1.ExternalSecretDataRemoteRef{
+				ref: esv1.ExternalSecretDataRemoteRef{
 					Key:      record0,
 					Property: "invalid",
 				},

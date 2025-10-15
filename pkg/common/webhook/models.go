@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,14 +14,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package webhook provides functionality for interacting with external webhook services
+// to fetch and push secret data.
 package webhook
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 )
 
+// Spec defines the configuration for a webhook provider.
 type Spec struct {
 	// Webhook Method
 	// +optional, default GET
@@ -31,6 +37,10 @@ type Spec struct {
 	// Headers
 	// +optional
 	Headers map[string]string `json:"headers,omitempty"`
+
+	// Auth specifies a authorization protocol. Only one protocol may be set.
+	// +optional
+	Auth *AuthorizationProtocol `json:"auth,omitempty"`
 
 	// Body
 	// +optional
@@ -57,28 +67,38 @@ type Spec struct {
 
 	// The provider for the CA bundle to use to validate webhook server certificate.
 	// +optional
-	CAProvider *esv1beta1.CAProvider `json:"caProvider,omitempty"`
+	CAProvider *esv1.CAProvider `json:"caProvider,omitempty"`
 }
 
+// AuthorizationProtocol contains the protocol-specific configuration
+// +kubebuilder:validation:MinProperties=1
+// +kubebuilder:validation:MaxProperties=1
+type AuthorizationProtocol struct {
+	// NTLMProtocol configures the store to use NTLM for auth
+	// +optional
+	NTLM *NTLMProtocol `json:"ntlm,omitempty"`
+
+	// Define other protocols here
+}
+
+// NTLMProtocol contains the NTLM-specific configuration.
+type NTLMProtocol struct {
+	UserName esmeta.SecretKeySelector `json:"usernameSecret"`
+	Password esmeta.SecretKeySelector `json:"passwordSecret"`
+}
+
+// Result defines how to process and extract data from webhook responses.
 type Result struct {
 	// Json path of return value
 	// +optional
 	JSONPath string `json:"jsonPath,omitempty"`
 }
 
+// Secret defines a secret that can be used in webhook templates.
 type Secret struct {
 	// Name of this secret in templates
 	Name string `json:"name"`
 
 	// Secret ref to fill in credentials
-	SecretRef SecretKeySelector `json:"secretRef"`
-}
-
-type SecretKeySelector struct {
-	// The name of the Secret resource being referred to.
-	Name string `json:"name,omitempty"`
-	// The key where the token is found.
-	Key string `json:"key,omitempty"`
-
-	Namespace *string `json:"namespace,omitempty"`
+	SecretRef esmeta.SecretKeySelector `json:"secretRef"`
 }

@@ -26,6 +26,14 @@ spec:
       registry: string
       scope: string
       tenantId: string
+    cloudsmithAccessTokenSpec:
+      apiUrl: string
+      orgSlug: string
+      serviceAccountRef:
+        audiences: [] # minItems 0 of type string
+        name: string
+        namespace: string
+      serviceSlug: string
     ecrAuthorizationTokenSpec:
       auth:
         jwt:
@@ -67,6 +75,22 @@ spec:
             audiences: [] # minItems 0 of type string
             name: string
             namespace: string
+        workloadIdentityFederation:
+          audience: string
+          awsSecurityCredentials:
+            awsCredentialsSecretRef:
+              name: string
+              namespace: string
+            region: "ap-south-1"
+          credConfig:
+            key: string
+            name: string
+            namespace: string
+          externalTokenEndpoint: string
+          serviceAccountRef:
+            audiences: [] # minItems 0 of type string
+            name: string
+            namespace: string
       projectID: string
     githubAccessTokenSpec:
       appID: string
@@ -82,6 +106,11 @@ spec:
       url: string
     grafanaSpec:
       auth:
+        basic:
+          password:
+            key: string
+            name: string
+          username: string
         token:
           key: string
           name: string
@@ -89,6 +118,15 @@ spec:
         name: string
         role: string
       url: string
+    mfaSpec:
+      algorithm: string
+      length: 1
+      secret:
+        key: string
+        name: string
+        namespace: string
+      timePeriod: 1
+      when: 2024-10-11T12:48:44Z
     passwordSpec:
       allowRepeat: false
       digits: 1
@@ -103,6 +141,10 @@ spec:
         name: string
         namespace: string
       url: string
+    sshKeySpec:
+      comment: string
+      keySize: 256
+      keyType: "rsa"
     stsSessionTokenSpec:
       auth:
         jwt:
@@ -154,6 +196,7 @@ spec:
               key: string
               name: string
               namespace: string
+            path: "cert"
             secretRef:
               key: string
               name: string
@@ -233,6 +276,8 @@ spec:
           name: string
           namespace: string
           type: "Secret" # "Secret", "ConfigMap"
+        checkAndSet:
+          required: true
         forwardInconsistent: true
         headers: {}
         namespace: string
@@ -254,6 +299,16 @@ spec:
         maxRetries: 1
         retryInterval: string
     webhookSpec:
+      auth:
+        ntlm:
+          passwordSecret:
+            key: string
+            name: string
+            namespace: string
+          usernameSecret:
+            key: string
+            name: string
+            namespace: string
       body: string
       caBundle: c3RyaW5n
       caProvider:
@@ -272,4 +327,4 @@ spec:
           name: string
       timeout: string
       url: string
-  kind: "ACRAccessToken" # "ACRAccessToken", "ECRAuthorizationToken", "Fake", "GCRAccessToken", "GithubAccessToken", "QuayAccessToken", "Password", "STSSessionToken", "UUID", "VaultDynamicSecret", "Webhook", "Grafana"
+  kind: "ACRAccessToken" # "ACRAccessToken", "CloudsmithAccessToken", "ECRAuthorizationToken", "Fake", "GCRAccessToken", "GithubAccessToken", "QuayAccessToken", "Password", "SSHKey", "STSSessionToken", "UUID", "VaultDynamicSecret", "Webhook", "Grafana"

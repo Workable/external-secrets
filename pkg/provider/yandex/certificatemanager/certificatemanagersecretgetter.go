@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,6 +23,7 @@ import (
 
 	"github.com/external-secrets/external-secrets/pkg/provider/yandex/certificatemanager/client"
 	"github.com/external-secrets/external-secrets/pkg/provider/yandex/common"
+	api "github.com/yandex-cloud/go-genproto/yandex/cloud/certificatemanager/v1"
 )
 
 const (
@@ -29,23 +32,22 @@ const (
 	chainAndPrivateKeyProperty = "chainAndPrivateKey"
 )
 
-// Implementation of common.SecretGetter.
+// Implementation of ydxcommon.SecretGetter.
 type certificateManagerSecretGetter struct {
 	certificateManagerClient client.CertificateManagerClient
 }
 
-func newCertificateManagerSecretGetter(certificateManagerClient client.CertificateManagerClient) (common.SecretGetter, error) {
+func newCertificateManagerSecretGetter(certificateManagerClient client.CertificateManagerClient) (ydxcommon.SecretGetter, error) {
 	return &certificateManagerSecretGetter{
 		certificateManagerClient: certificateManagerClient,
 	}, nil
 }
 
-func (g *certificateManagerSecretGetter) GetSecret(ctx context.Context, iamToken, resourceID, versionID, property string) ([]byte, error) {
-	response, err := g.certificateManagerClient.GetCertificateContent(ctx, iamToken, resourceID, versionID)
+func (g *certificateManagerSecretGetter) GetSecret(ctx context.Context, iamToken, resourceID string, resourceKeyType ydxcommon.ResourceKeyType, folderID, versionID, property string) ([]byte, error) {
+	response, err := g.fetchCertificateContentResponse(ctx, iamToken, resourceID, resourceKeyType, folderID, versionID)
 	if err != nil {
 		return nil, fmt.Errorf("unable to request certificate content to get secret: %w", err)
 	}
-
 	chain := trimAndJoin(response.CertificateChain...)
 	privateKey := trimAndJoin(response.PrivateKey)
 
@@ -61,12 +63,11 @@ func (g *certificateManagerSecretGetter) GetSecret(ctx context.Context, iamToken
 	}
 }
 
-func (g *certificateManagerSecretGetter) GetSecretMap(ctx context.Context, iamToken, resourceID, versionID string) (map[string][]byte, error) {
-	response, err := g.certificateManagerClient.GetCertificateContent(ctx, iamToken, resourceID, versionID)
+func (g *certificateManagerSecretGetter) GetSecretMap(ctx context.Context, iamToken, resourceID string, resourceKeyType ydxcommon.ResourceKeyType, folderID, versionID string) (map[string][]byte, error) {
+	response, err := g.fetchCertificateContentResponse(ctx, iamToken, resourceID, resourceKeyType, folderID, versionID)
 	if err != nil {
 		return nil, fmt.Errorf("unable to request certificate content to get secret map: %w", err)
 	}
-
 	chain := strings.Join(response.CertificateChain, "\n")
 	privateKey := response.PrivateKey
 
@@ -76,6 +77,21 @@ func (g *certificateManagerSecretGetter) GetSecretMap(ctx context.Context, iamTo
 	}, nil
 }
 
+func (g *certificateManagerSecretGetter) fetchCertificateContentResponse(ctx context.Context, iamToken, resourceID string, resourceKeyType ydxcommon.ResourceKeyType, folderID, versionID string) (*api.GetCertificateContentResponse, error) {
+	switch resourceKeyType {
+	case ydxcommon.ResourceKeyTypeID:
+		return g.certificateManagerClient.GetCertificateContent(ctx, iamToken, resourceID, versionID)
+	case ydxcommon.ResourceKeyTypeName:
+		responseEx, err := g.certificateManagerClient.GetExCertificateContent(ctx, iamToken, folderID, resourceID, versionID)
+		if err != nil {
+			return nil, err
+		}
+		return convertToGetCertificateContentResponse(responseEx), nil
+	default:
+		return nil, fmt.Errorf("unsupported resource key type '%v'", resourceKeyType)
+	}
+}
+
 func trimAndJoin(elems ...string) string {
 	var sb strings.Builder
 	for _, elem := range elems {
@@ -83,4 +99,12 @@ func trimAndJoin(elems ...string) string {
 		sb.WriteRune('\n')
 	}
 	return sb.String()
+}
+
+func convertToGetCertificateContentResponse(response *api.GetExCertificateContentResponse) *api.GetCertificateContentResponse {
+	return &api.GetCertificateContentResponse{
+		CertificateId:    response.CertificateId,
+		CertificateChain: response.CertificateChain,
+		PrivateKey:       response.PrivateKey,
+	}
 }

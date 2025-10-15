@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+	https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -11,6 +13,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
+// Package fortanix provides a Fortanix provider implementation.
 package fortanix
 
 import (
@@ -23,11 +27,12 @@ import (
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
-	"github.com/external-secrets/external-secrets/pkg/utils"
-	"github.com/external-secrets/external-secrets/pkg/utils/resolvers"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
+	"github.com/external-secrets/external-secrets/pkg/esutils/resolvers"
 )
 
+// Provider implements provider interface for Fortanix Key Management.
 type Provider struct{}
 
 const (
@@ -40,19 +45,21 @@ const (
 	errAPIKeySecretRefKeyIsRequired  = "apiKey.secretRef.key is required"
 )
 
-var _ esv1beta1.Provider = &Provider{}
+var _ esv1.Provider = &Provider{}
 
 func init() {
-	esv1beta1.Register(&Provider{}, &esv1beta1.SecretStoreProvider{
-		Fortanix: &esv1beta1.FortanixProvider{},
-	})
+	esv1.Register(&Provider{}, &esv1.SecretStoreProvider{
+		Fortanix: &esv1.FortanixProvider{},
+	}, esv1.MaintenanceStatusMaintained)
 }
 
-func (p *Provider) Capabilities() esv1beta1.SecretStoreCapabilities {
-	return esv1beta1.SecretStoreReadOnly
+// Capabilities returns the provider supported capabilities (ReadOnly, WriteOnly, ReadWrite).
+func (p *Provider) Capabilities() esv1.SecretStoreCapabilities {
+	return esv1.SecretStoreReadOnly
 }
 
-func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, kube kubeclient.Client, namespace string) (esv1beta1.SecretsClient, error) {
+// NewClient creates a new Fortanix Key Management client.
+func (p *Provider) NewClient(ctx context.Context, store esv1.GenericStore, kube kubeclient.Client, namespace string) (esv1.SecretsClient, error) {
 	config, err := getConfig(store)
 	if err != nil {
 		return nil, err
@@ -74,12 +81,13 @@ func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, 
 	}, nil
 }
 
-func (p *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnings, error) {
+// ValidateStore validates the Fortanix Key Management store configuration.
+func (p *Provider) ValidateStore(store esv1.GenericStore) (admission.Warnings, error) {
 	_, err := getConfig(store)
 	return nil, err
 }
 
-func getConfig(store esv1beta1.GenericStore) (*esv1beta1.FortanixProvider, error) {
+func getConfig(store esv1.GenericStore) (*esv1.FortanixProvider, error) {
 	if store == nil {
 		return nil, errors.New(errStoreIsNil)
 	}
@@ -103,7 +111,7 @@ func getConfig(store esv1beta1.GenericStore) (*esv1beta1.FortanixProvider, error
 	return config, nil
 }
 
-func validateSecretStoreRef(store esv1beta1.GenericStore, ref *esv1beta1.FortanixProviderSecretRef) error {
+func validateSecretStoreRef(store esv1.GenericStore, ref *esv1.FortanixProviderSecretRef) error {
 	if ref == nil {
 		return errors.New(errAPIKeyIsRequired)
 	}
@@ -120,5 +128,5 @@ func validateSecretStoreRef(store esv1beta1.GenericStore, ref *esv1beta1.Fortani
 		return errors.New(errAPIKeySecretRefKeyIsRequired)
 	}
 
-	return utils.ValidateReferentSecretSelector(store, *ref.SecretRef)
+	return esutils.ValidateReferentSecretSelector(store, *ref.SecretRef)
 }

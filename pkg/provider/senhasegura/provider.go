@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package senhasegura implements Senhasegura provider for External Secrets Operator
 package senhasegura
 
 import (
@@ -23,13 +26,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	senhaseguraAuth "github.com/external-secrets/external-secrets/pkg/provider/senhasegura/auth"
 	"github.com/external-secrets/external-secrets/pkg/provider/senhasegura/dsm"
 )
 
 // https://github.com/external-secrets/external-secrets/issues/644
-var _ esv1beta1.Provider = &Provider{}
+var _ esv1.Provider = &Provider{}
 
 // Provider struct that satisfier ESO interface.
 type Provider struct{}
@@ -46,14 +49,12 @@ const (
 )
 
 // Capabilities return the provider supported capabilities (ReadOnly, WriteOnly, ReadWrite).
-func (p *Provider) Capabilities() esv1beta1.SecretStoreCapabilities {
-	return esv1beta1.SecretStoreReadOnly
+func (p *Provider) Capabilities() esv1.SecretStoreCapabilities {
+	return esv1.SecretStoreReadOnly
 }
 
-/*
-Construct a new secrets client based on provided store.
-*/
-func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, kube client.Client, namespace string) (esv1beta1.SecretsClient, error) {
+// NewClient construct a new secrets client based on provided store.
+func (p *Provider) NewClient(ctx context.Context, store esv1.GenericStore, kube client.Client, namespace string) (esv1.SecretsClient, error) {
 	spec := store.GetSpec()
 	provider := spec.Provider.Senhasegura
 
@@ -62,21 +63,21 @@ func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, 
 		return nil, err
 	}
 
-	if provider.Module == esv1beta1.SenhaseguraModuleDSM {
+	if provider.Module == esv1.SenhaseguraModuleDSM {
 		return dsm.New(isoSession)
 	}
 
 	return nil, fmt.Errorf(errUnknownProviderService, provider.Module)
 }
 
-// Validate store using Validating webhook during secret store creating
+// ValidateStore validates store using Validating webhook during secret store creating
 // Checks here are usually the best experience for the user, as the SecretStore will not be created until it is a 'valid' one.
 // https://github.com/external-secrets/external-secrets/pull/830#discussion_r833278518
-func (p *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnings, error) {
+func (p *Provider) ValidateStore(store esv1.GenericStore) (admission.Warnings, error) {
 	return nil, validateStore(store)
 }
 
-func validateStore(store esv1beta1.GenericStore) error {
+func validateStore(store esv1.GenericStore) error {
 	if store == nil {
 		return errors.New(errNilStore)
 	}
@@ -121,7 +122,7 @@ func validateStore(store esv1beta1.GenericStore) error {
 Register SenhaseguraProvider in ESO init.
 */
 func init() {
-	esv1beta1.Register(&Provider{}, &esv1beta1.SecretStoreProvider{
-		Senhasegura: &esv1beta1.SenhaseguraProvider{},
-	})
+	esv1.Register(&Provider{}, &esv1.SecretStoreProvider{
+		Senhasegura: &esv1.SenhaseguraProvider{},
+	}, esv1.MaintenanceStatusMaintained)
 }

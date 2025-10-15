@@ -1,16 +1,21 @@
-// /*
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//	http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// */
+/*
+Copyright © 2025 ESO Maintainer Team
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+// Package github implements a provider for GitHub secrets, allowing
+// External Secrets to write secrets to GitHub Actions.
 package github
 
 import (
@@ -21,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 )
 
 const (
@@ -30,31 +35,31 @@ const (
 	errInvalidStoreProv    = "invalid store provider"
 	errInvalidGithubProv   = "invalid github provider"
 	errInvalidStore        = "invalid store"
-	errInvalidProvider     = "invalid provider"
 )
 
+// Provider implements the GitHub provider for managing secrets through GitHub Actions.
 type Provider struct {
 }
 
-var _ esv1beta1.Provider = &Provider{}
+var _ esv1.Provider = &Provider{}
 
 func init() {
-	esv1beta1.Register(&Provider{}, &esv1beta1.SecretStoreProvider{
-		Github: &esv1beta1.GithubProvider{},
-	})
+	esv1.Register(&Provider{}, &esv1.SecretStoreProvider{
+		Github: &esv1.GithubProvider{},
+	}, esv1.MaintenanceStatusMaintained)
 }
 
 // Capabilities return the provider supported capabilities (ReadOnly, WriteOnly, ReadWrite).
-func (p *Provider) Capabilities() esv1beta1.SecretStoreCapabilities {
-	return esv1beta1.SecretStoreWriteOnly
+func (p *Provider) Capabilities() esv1.SecretStoreCapabilities {
+	return esv1.SecretStoreWriteOnly
 }
 
 // NewClient constructs a new secrets client based on the provided store.
-func (p *Provider) NewClient(ctx context.Context, store esv1beta1.GenericStore, kube client.Client, namespace string) (esv1beta1.SecretsClient, error) {
+func (p *Provider) NewClient(ctx context.Context, store esv1.GenericStore, kube client.Client, namespace string) (esv1.SecretsClient, error) {
 	return newClient(ctx, store, kube, namespace)
 }
 
-func newClient(ctx context.Context, store esv1beta1.GenericStore, kube client.Client, namespace string) (esv1beta1.SecretsClient, error) {
+func newClient(ctx context.Context, store esv1.GenericStore, kube client.Client, namespace string) (esv1.SecretsClient, error) {
 	provider, err := getProvider(store)
 	if err != nil {
 		return nil, err
@@ -71,11 +76,11 @@ func newClient(ctx context.Context, store esv1beta1.GenericStore, kube client.Cl
 	g.createOrUpdateFn = g.orgCreateOrUpdateSecret
 	g.listSecretsFn = g.orgListSecretsFn
 	g.deleteSecretFn = g.orgDeleteSecretsFn
-	client, err := g.AuthWithPrivateKey(ctx)
+	ghClient, err := g.AuthWithPrivateKey(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("could not get private key: %w", err)
 	}
-	g.baseClient = *client.Actions
+	g.baseClient = *ghClient.Actions
 	if provider.Repository != "" {
 		g.getSecretFn = g.repoGetSecretFn
 		g.getPublicKeyFn = g.repoGetPublicKeyFn
@@ -84,11 +89,11 @@ func newClient(ctx context.Context, store esv1beta1.GenericStore, kube client.Cl
 		g.deleteSecretFn = g.repoDeleteSecretsFn
 		if provider.Environment != "" {
 			// For environment to work, we need the repository ID instead of its name.
-			repository, _, err := client.Repositories.Get(ctx, g.provider.Organization, g.provider.Repository)
+			repo, _, err := ghClient.Repositories.Get(ctx, g.provider.Organization, g.provider.Repository)
 			if err != nil {
 				return nil, fmt.Errorf("error fetching repository: %w", err)
 			}
-			g.repoID = repository.GetID()
+			g.repoID = repo.GetID()
 			g.getSecretFn = g.envGetSecretFn
 			g.getPublicKeyFn = g.envGetPublicKeyFn
 			g.createOrUpdateFn = g.envCreateOrUpdateSecret
@@ -100,7 +105,7 @@ func newClient(ctx context.Context, store esv1beta1.GenericStore, kube client.Cl
 	return g, nil
 }
 
-func getProvider(store esv1beta1.GenericStore) (*esv1beta1.GithubProvider, error) {
+func getProvider(store esv1.GenericStore) (*esv1.GithubProvider, error) {
 	spc := store.GetSpec()
 	if spc == nil || spc.Provider.Github == nil {
 		return nil, errors.New(errUnexpectedStoreSpec)
@@ -109,7 +114,8 @@ func getProvider(store esv1beta1.GenericStore) (*esv1beta1.GithubProvider, error
 	return spc.Provider.Github, nil
 }
 
-func (p *Provider) ValidateStore(store esv1beta1.GenericStore) (admission.Warnings, error) {
+// ValidateStore validates the configuration of a GitHub secret store.
+func (p *Provider) ValidateStore(store esv1.GenericStore) (admission.Warnings, error) {
 	if store == nil {
 		return nil, errors.New(errInvalidStore)
 	}

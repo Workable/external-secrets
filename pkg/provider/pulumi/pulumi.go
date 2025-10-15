@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,8 +26,8 @@ import (
 	esc "github.com/pulumi/esc-sdk/sdk/go"
 	corev1 "k8s.io/api/core/v1"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
-	"github.com/external-secrets/external-secrets/pkg/utils"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	"github.com/external-secrets/external-secrets/pkg/esutils"
 )
 
 type client struct {
@@ -47,9 +49,9 @@ const (
 	errPushWholeSecret               = "pushing the whole secret is not yet implemented"
 )
 
-var _ esv1beta1.SecretsClient = &client{}
+var _ esv1.SecretsClient = &client{}
 
-func (c *client) GetSecret(_ context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) ([]byte, error) {
+func (c *client) GetSecret(_ context.Context, ref esv1.ExternalSecretDataRemoteRef) ([]byte, error) {
 	env, err := c.escClient.OpenEnvironment(c.authCtx, c.organization, c.project, c.environment)
 	if err != nil {
 		return nil, err
@@ -58,7 +60,7 @@ func (c *client) GetSecret(_ context.Context, ref esv1beta1.ExternalSecretDataRe
 	if err != nil {
 		return nil, err
 	}
-	return utils.GetByteValue(value.GetValue())
+	return esutils.GetByteValue(value.GetValue())
 }
 
 func createSubmaps(input map[string]interface{}) map[string]interface{} {
@@ -83,7 +85,7 @@ func createSubmaps(input map[string]interface{}) map[string]interface{} {
 	return result
 }
 
-func (c *client) PushSecret(_ context.Context, secret *corev1.Secret, data esv1beta1.PushSecretData) error {
+func (c *client) PushSecret(_ context.Context, secret *corev1.Secret, data esv1.PushSecretData) error {
 	secretKey := data.GetSecretKey()
 	if secretKey == "" {
 		return errors.New(errPushWholeSecret)
@@ -113,18 +115,20 @@ func (c *client) PushSecret(_ context.Context, secret *corev1.Secret, data esv1b
 	return nil
 }
 
-func (c *client) SecretExists(_ context.Context, _ esv1beta1.PushSecretRemoteRef) (bool, error) {
+func (c *client) SecretExists(_ context.Context, _ esv1.PushSecretRemoteRef) (bool, error) {
 	return false, errors.New(errPushSecretsNotSupported)
 }
 
-func (c *client) DeleteSecret(_ context.Context, _ esv1beta1.PushSecretRemoteRef) error {
+func (c *client) DeleteSecret(_ context.Context, _ esv1.PushSecretRemoteRef) error {
 	return errors.New(errDeleteSecretsNotSupported)
 }
 
-func (c *client) Validate() (esv1beta1.ValidationResult, error) {
-	return esv1beta1.ValidationResultReady, nil
+// Validate returns a ready validation result without doing any additional checks.
+func (c *client) Validate() (esv1.ValidationResult, error) {
+	return esv1.ValidationResultReady, nil
 }
 
+// GetMapFromInterface converts an interface{} to a map[string][]byte.
 func GetMapFromInterface(i interface{}) (map[string][]byte, error) {
 	// Assert the interface{} to map[string]interface{}
 	m, ok := i.(map[string]interface{})
@@ -137,13 +141,13 @@ func GetMapFromInterface(i interface{}) (map[string][]byte, error) {
 
 	// Iterate over the map and convert each value to []byte
 	for key, value := range m {
-		result[key], _ = utils.GetByteValue(value)
+		result[key], _ = esutils.GetByteValue(value)
 	}
 
 	return result, nil
 }
 
-func (c *client) GetSecretMap(_ context.Context, ref esv1beta1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
+func (c *client) GetSecretMap(_ context.Context, ref esv1.ExternalSecretDataRemoteRef) (map[string][]byte, error) {
 	env, err := c.escClient.OpenEnvironment(c.authCtx, c.organization, c.project, c.environment)
 	if err != nil {
 		return nil, err
@@ -155,7 +159,7 @@ func (c *client) GetSecretMap(_ context.Context, ref esv1beta1.ExternalSecretDat
 	kv, _ := GetMapFromInterface(value.GetValue())
 	secretData := make(map[string][]byte)
 	for k, v := range kv {
-		byteValue, err := utils.GetByteValue(v)
+		byteValue, err := esutils.GetByteValue(v)
 		if err != nil {
 			return nil, err
 		}
@@ -164,7 +168,7 @@ func (c *client) GetSecretMap(_ context.Context, ref esv1beta1.ExternalSecretDat
 		if err != nil {
 			return nil, err
 		}
-		secretData[k], err = utils.GetByteValue(val.Value)
+		secretData[k], err = esutils.GetByteValue(val.Value)
 		if err != nil {
 			return nil, fmt.Errorf(errUnableToGetValues, k, err)
 		}
@@ -172,7 +176,7 @@ func (c *client) GetSecretMap(_ context.Context, ref esv1beta1.ExternalSecretDat
 	return secretData, nil
 }
 
-func (c *client) GetAllSecrets(_ context.Context, _ esv1beta1.ExternalSecretFind) (map[string][]byte, error) {
+func (c *client) GetAllSecrets(_ context.Context, _ esv1.ExternalSecretFind) (map[string][]byte, error) {
 	return nil, errors.New(errGettingAllSecretsNotSupported)
 }
 

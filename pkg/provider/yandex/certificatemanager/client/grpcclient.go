@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,8 +31,9 @@ type grpcCertificateManagerClient struct {
 	certificateContentServiceClient api.CertificateContentServiceClient
 }
 
+// NewGrpcCertificateManagerClient creates a new gRPC client for Yandex Certificate Manager.
 func NewGrpcCertificateManagerClient(ctx context.Context, apiEndpoint string, authorizedKey *iamkey.Key, caCertificate []byte) (CertificateManagerClient, error) {
-	conn, err := common.NewGrpcConnection(
+	conn, err := ydxcommon.NewGrpcConnection(
 		ctx,
 		apiEndpoint,
 		"certificate-manager-data", // taken from https://api.cloud.yandex.net/endpoints
@@ -43,13 +46,34 @@ func NewGrpcCertificateManagerClient(ctx context.Context, apiEndpoint string, au
 	return &grpcCertificateManagerClient{api.NewCertificateContentServiceClient(conn)}, nil
 }
 
-func (c *grpcCertificateManagerClient) GetCertificateContent(ctx context.Context, iamToken, certificateID, _ string) (*api.GetCertificateContentResponse, error) {
+func (c *grpcCertificateManagerClient) GetCertificateContent(ctx context.Context, iamToken, certificateID, versionID string) (*api.GetCertificateContentResponse, error) {
 	response, err := c.certificateContentServiceClient.Get(
 		ctx,
 		&api.GetCertificateContentRequest{
 			CertificateId: certificateID,
+			VersionId:     versionID,
 		},
-		grpc.PerRPCCredentials(common.PerRPCCredentials{IamToken: iamToken}),
+		grpc.PerRPCCredentials(ydxcommon.PerRPCCredentials{IamToken: iamToken}),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+func (c *grpcCertificateManagerClient) GetExCertificateContent(ctx context.Context, iamToken, folderID, name, versionID string) (*api.GetExCertificateContentResponse, error) {
+	response, err := c.certificateContentServiceClient.GetEx(
+		ctx,
+		&api.GetExCertificateContentRequest{
+			Identifier: &api.GetExCertificateContentRequest_FolderAndName{
+				FolderAndName: &api.FolderAndName{
+					FolderId:        folderID,
+					CertificateName: name,
+				},
+			},
+			VersionId: versionID,
+		},
+		grpc.PerRPCCredentials(ydxcommon.PerRPCCredentials{IamToken: iamToken}),
 	)
 	if err != nil {
 		return nil, err

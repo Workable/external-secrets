@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,7 +17,6 @@ limitations under the License.
 package template
 
 import (
-	"context"
 
 	// nolint
 	. "github.com/onsi/ginkgo/v2"
@@ -25,7 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/external-secrets/external-secrets-e2e/framework"
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 )
 
 type templateProvider struct {
@@ -51,15 +52,15 @@ func (s *templateProvider) DeleteSecret(key string) {
 func (s *templateProvider) BeforeEach() {
 	// Create a secret store - change these values to match YAML
 	By("creating a secret store for credentials")
-	secretStore := &esv1beta1.SecretStore{
+	secretStore := &esv1.SecretStore{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      s.framework.Namespace.Name,
 			Namespace: s.framework.Namespace.Name,
 		},
-		Spec: esv1beta1.SecretStoreSpec{
-			Provider: &esv1beta1.SecretStoreProvider{
-				Fake: &esv1beta1.FakeProvider{
-					Data: []esv1beta1.FakeProviderData{
+		Spec: esv1.SecretStoreSpec{
+			Provider: &esv1.SecretStoreProvider{
+				Fake: &esv1.FakeProvider{
+					Data: []esv1.FakeProviderData{
 						{
 							Key:   "foo",
 							Value: "bar",
@@ -69,11 +70,8 @@ func (s *templateProvider) BeforeEach() {
 							Value: "bang",
 						},
 						{
-							Key: "map",
-							ValueMap: map[string]string{
-								"foo": "barmap",
-								"bar": "bangmap",
-							},
+							Key:   "map",
+							Value: `{"foo": "barmap", "bar": "bangmap"}`,
 						},
 						{
 							Key:   "json",
@@ -85,6 +83,6 @@ func (s *templateProvider) BeforeEach() {
 		},
 	}
 
-	err := s.framework.CRClient.Create(context.Background(), secretStore)
+	err := s.framework.CRClient.Create(GinkgoT().Context(), secretStore)
 	Expect(err).ToNot(HaveOccurred())
 }

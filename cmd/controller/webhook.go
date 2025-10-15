@@ -1,11 +1,11 @@
 /*
-Copyright © 2022 NAME HERE <EMAIL ADDRESS>
+Copyright © 2025 ESO Maintainer Team
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	esv1alpha1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1alpha1"
 	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
 	"github.com/external-secrets/external-secrets/pkg/controllers/crds"
@@ -48,6 +49,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	// external-secrets schemes
+	utilruntime.Must(esv1.AddToScheme(scheme))
 	utilruntime.Must(esv1beta1.AddToScheme(scheme))
 	utilruntime.Must(esv1alpha1.AddToScheme(scheme))
 }
@@ -99,52 +101,63 @@ var webhookCmd = &cobra.Command{
 			ctrl.Log.Error(err, "unable to fetch tls ciphers")
 			os.Exit(1)
 		}
-		mgrTLSOptions := func(cfg *tls.Config) {
-			cfg.CipherSuites = cipherList
+
+		// Configure TLS options for webhook server
+		var webhookTLSOpts []func(*tls.Config)
+
+		// Add cipher configuration if needed
+		if len(cipherList) > 0 {
+			webhookTLSOpts = append(webhookTLSOpts, func(cfg *tls.Config) {
+				cfg.CipherSuites = cipherList
+			})
 		}
+
+		// Add TLS version configuration
+		webhookTLSOpts = append(webhookTLSOpts, func(c *tls.Config) {
+			c.MinVersion = tlsVersion(tlsMinVersion)
+		})
+
+		// Add HTTP/2 disabling if needed
+		if !enableHTTP2 {
+			webhookTLSOpts = append(webhookTLSOpts, disableHTTP2)
+		}
+
+		// Configure metrics server options
+		metricsServerOpts := server.Options{
+			BindAddress: metricsAddr,
+		}
+
+		// Configure TLS options for metrics server
+		var metricsTLSOpts []func(*tls.Config)
+		if !enableHTTP2 {
+			metricsTLSOpts = append(metricsTLSOpts, disableHTTP2)
+		}
+		metricsServerOpts.TLSOpts = metricsTLSOpts
+
 		mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-			Scheme: scheme,
-			Metrics: server.Options{
-				BindAddress: metricsAddr,
-			},
+			Scheme:                 scheme,
+			Metrics:                metricsServerOpts,
 			HealthProbeBindAddress: healthzAddr,
 			WebhookServer: webhook.NewServer(webhook.Options{
 				CertDir: certDir,
 				Port:    port,
-				TLSOpts: []func(*tls.Config){
-					mgrTLSOptions,
-					func(c *tls.Config) {
-						c.MinVersion = tlsVersion(tlsMinVersion)
-					},
-				},
+				TLSOpts: webhookTLSOpts,
 			}),
 		})
 		if err != nil {
 			setupLog.Error(err, "unable to start manager")
 			os.Exit(1)
 		}
-		if err = (&esv1beta1.ExternalSecret{}).SetupWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, errCreateWebhook, "webhook", "ExternalSecret-v1beta1")
+		if err = (&esv1.ExternalSecret{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, errCreateWebhook, "webhook", "ExternalSecret-v1")
 			os.Exit(1)
 		}
-		if err = (&esv1beta1.SecretStore{}).SetupWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, errCreateWebhook, "webhook", "SecretStore-v1beta1")
+		if err = (&esv1.SecretStore{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, errCreateWebhook, "webhook", "SecretStore-v1")
 			os.Exit(1)
 		}
-		if err = (&esv1beta1.ClusterSecretStore{}).SetupWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, errCreateWebhook, "webhook", "ClusterSecretStore-v1beta1")
-			os.Exit(1)
-		}
-		if err = (&esv1alpha1.ExternalSecret{}).SetupWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, errCreateWebhook, "webhook", "ExternalSecret-v1alpha1")
-			os.Exit(1)
-		}
-		if err = (&esv1alpha1.SecretStore{}).SetupWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, errCreateWebhook, "webhook", "SecretStore-v1alpha1")
-			os.Exit(1)
-		}
-		if err = (&esv1alpha1.ClusterSecretStore{}).SetupWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, errCreateWebhook, "webhook", "ClusterSecretStore-v1alpha1")
+		if err = (&esv1.ClusterSecretStore{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, errCreateWebhook, "webhook", "ClusterSecretStore-v1")
 			os.Exit(1)
 		}
 
@@ -244,4 +257,6 @@ func init() {
 		" Full lists of available ciphers can be found at https://pkg.go.dev/crypto/tls#pkg-constants."+
 		" E.g. 'TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256'")
 	webhookCmd.Flags().StringVar(&tlsMinVersion, "tls-min-version", "1.2", "minimum version of TLS supported.")
+	webhookCmd.Flags().BoolVar(&enableHTTP2, "enable-http2", false,
+		"If set, HTTP/2 will be enabled for the metrics and webhook server")
 }

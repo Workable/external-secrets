@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -37,6 +39,15 @@ type GitlabProvider struct {
 
 	// Environment environment_scope of gitlab CI/CD variables (Please see https://docs.gitlab.com/ee/ci/environments/#create-a-static-environment on how to create environments)
 	Environment string `json:"environment,omitempty"`
+
+	// Base64 encoded certificate for the GitLab server sdk. The sdk MUST run with HTTPS to make sure no MITM attack
+	// can be performed.
+	// +optional
+	CABundle []byte `json:"caBundle,omitempty"`
+
+	// see: https://external-secrets.io/latest/spec/#external-secrets.io/v1alpha1.CAProvider
+	// +optional
+	CAProvider *CAProvider `json:"caProvider,omitempty"`
 }
 
 type GitlabAuth struct {

@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,7 +17,6 @@ limitations under the License.
 package kubernetes
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 
@@ -30,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/external-secrets/external-secrets-e2e/framework"
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 )
 
@@ -62,7 +63,7 @@ func (s *Provider) CreateSecret(key string, val framework.SecretEntry) {
 	for k, v := range stringMap {
 		secret.Data[k] = []byte(v)
 	}
-	err = s.framework.CRClient.Create(context.Background(), secret)
+	err = s.framework.CRClient.Create(GinkgoT().Context(), secret)
 	Expect(err).ToNot(HaveOccurred())
 }
 
@@ -78,11 +79,11 @@ func (s *Provider) DeleteSecret(key string) {
 			Namespace: s.framework.Namespace.Name,
 		},
 	}
-	err := s.framework.CRClient.Delete(context.Background(), secret, &client.DeleteOptions{})
+	err := s.framework.CRClient.Delete(GinkgoT().Context(), secret, &client.DeleteOptions{})
 	Expect(err).ToNot(HaveOccurred())
 }
 
-func makeDefaultStore(suffix, namespace string) (*rbac.Role, *rbac.RoleBinding, *esv1beta1.SecretStore) {
+func makeDefaultStore(suffix, namespace string) (*rbac.Role, *rbac.RoleBinding, *esv1.SecretStore) {
 	roleName := fmt.Sprintf("%s-%s", "allow-eso-secret-read", suffix)
 	role := &rbac.Role{
 		ObjectMeta: metav1.ObjectMeta{
@@ -122,22 +123,22 @@ func makeDefaultStore(suffix, namespace string) (*rbac.Role, *rbac.RoleBinding, 
 		},
 	}
 
-	store := &esv1beta1.SecretStore{
+	store := &esv1.SecretStore{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      namespace,
 			Namespace: namespace,
 		},
-		Spec: esv1beta1.SecretStoreSpec{
-			Provider: &esv1beta1.SecretStoreProvider{
-				Kubernetes: &esv1beta1.KubernetesProvider{
-					Server: esv1beta1.KubernetesServer{
-						CAProvider: &esv1beta1.CAProvider{
-							Type: esv1beta1.CAProviderTypeConfigMap,
+		Spec: esv1.SecretStoreSpec{
+			Provider: &esv1.SecretStoreProvider{
+				Kubernetes: &esv1.KubernetesProvider{
+					Server: esv1.KubernetesServer{
+						CAProvider: &esv1.CAProvider{
+							Type: esv1.CAProviderTypeConfigMap,
 							Name: "kube-root-ca.crt",
 							Key:  "ca.crt",
 						},
 					},
-					Auth: esv1beta1.KubernetesAuth{
+					Auth: &esv1.KubernetesAuth{
 						ServiceAccount: &esmeta.ServiceAccountSelector{
 							Name: "default",
 						},
@@ -154,13 +155,13 @@ func makeDefaultStore(suffix, namespace string) (*rbac.Role, *rbac.RoleBinding, 
 func (s *Provider) CreateStore() {
 	rb, role, store := makeDefaultStore("", s.framework.Namespace.Name)
 
-	err := s.framework.CRClient.Create(context.Background(), role)
+	err := s.framework.CRClient.Create(GinkgoT().Context(), role)
 	Expect(err).ToNot(HaveOccurred())
 
-	err = s.framework.CRClient.Create(context.Background(), rb)
+	err = s.framework.CRClient.Create(GinkgoT().Context(), rb)
 	Expect(err).ToNot(HaveOccurred())
 
-	err = s.framework.CRClient.Create(context.Background(), store)
+	err = s.framework.CRClient.Create(GinkgoT().Context(), store)
 	Expect(err).ToNot(HaveOccurred())
 }
 
@@ -168,7 +169,7 @@ func (s *Provider) CreateReferentStore() {
 	rb, role, store := makeDefaultStore("referent", s.framework.Namespace.Name)
 	// ServiceAccount Namespace is not set, this will be inferred
 	// from the ExternalSecret
-	css := &esv1beta1.ClusterSecretStore{
+	css := &esv1.ClusterSecretStore{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: referentStoreName(s.framework),
 		},
@@ -176,13 +177,13 @@ func (s *Provider) CreateReferentStore() {
 	}
 	css.Spec.Provider.Kubernetes.Server.CAProvider.Namespace = &s.framework.Namespace.Name
 
-	err := s.framework.CRClient.Create(context.Background(), role)
+	err := s.framework.CRClient.Create(GinkgoT().Context(), role)
 	Expect(err).ToNot(HaveOccurred())
 
-	err = s.framework.CRClient.Create(context.Background(), rb)
+	err = s.framework.CRClient.Create(GinkgoT().Context(), rb)
 	Expect(err).ToNot(HaveOccurred())
 
-	err = s.framework.CRClient.Create(context.Background(), css)
+	err = s.framework.CRClient.Create(GinkgoT().Context(), css)
 	Expect(err).ToNot(HaveOccurred())
 }
 

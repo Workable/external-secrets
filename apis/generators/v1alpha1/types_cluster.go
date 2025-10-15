@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,39 +29,45 @@ type ClusterGeneratorSpec struct {
 }
 
 // GeneratorKind represents a kind of generator.
-// +kubebuilder:validation:Enum=ACRAccessToken;ECRAuthorizationToken;Fake;GCRAccessToken;GithubAccessToken;QuayAccessToken;Password;STSSessionToken;UUID;VaultDynamicSecret;Webhook;Grafana
+// +kubebuilder:validation:Enum=ACRAccessToken;CloudsmithAccessToken;ECRAuthorizationToken;Fake;GCRAccessToken;GithubAccessToken;QuayAccessToken;Password;SSHKey;STSSessionToken;UUID;VaultDynamicSecret;Webhook;Grafana
 type GeneratorKind string
 
 const (
 	GeneratorKindACRAccessToken        GeneratorKind = "ACRAccessToken"
+	GeneratorKindCloudsmithAccessToken GeneratorKind = "CloudsmithAccessToken"
 	GeneratorKindECRAuthorizationToken GeneratorKind = "ECRAuthorizationToken"
 	GeneratorKindFake                  GeneratorKind = "Fake"
 	GeneratorKindGCRAccessToken        GeneratorKind = "GCRAccessToken"
 	GeneratorKindGithubAccessToken     GeneratorKind = "GithubAccessToken"
 	GeneratorKindQuayAccessToken       GeneratorKind = "QuayAccessToken"
 	GeneratorKindPassword              GeneratorKind = "Password"
+	GeneratorKindSSHKey                GeneratorKind = "SSHKey"
 	GeneratorKindSTSSessionToken       GeneratorKind = "STSSessionToken"
 	GeneratorKindUUID                  GeneratorKind = "UUID"
 	GeneratorKindVaultDynamicSecret    GeneratorKind = "VaultDynamicSecret"
 	GeneratorKindWebhook               GeneratorKind = "Webhook"
 	GeneratorKindGrafana               GeneratorKind = "Grafana"
+	GeneratorKindMFA                   GeneratorKind = "MFA"
 )
 
 // +kubebuilder:validation:MaxProperties=1
 // +kubebuilder:validation:MinProperties=1
 type GeneratorSpec struct {
 	ACRAccessTokenSpec        *ACRAccessTokenSpec        `json:"acrAccessTokenSpec,omitempty"`
+	CloudsmithAccessTokenSpec *CloudsmithAccessTokenSpec `json:"cloudsmithAccessTokenSpec,omitempty"`
 	ECRAuthorizationTokenSpec *ECRAuthorizationTokenSpec `json:"ecrAuthorizationTokenSpec,omitempty"`
 	FakeSpec                  *FakeSpec                  `json:"fakeSpec,omitempty"`
 	GCRAccessTokenSpec        *GCRAccessTokenSpec        `json:"gcrAccessTokenSpec,omitempty"`
 	GithubAccessTokenSpec     *GithubAccessTokenSpec     `json:"githubAccessTokenSpec,omitempty"`
 	QuayAccessTokenSpec       *QuayAccessTokenSpec       `json:"quayAccessTokenSpec,omitempty"`
 	PasswordSpec              *PasswordSpec              `json:"passwordSpec,omitempty"`
+	SSHKeySpec                *SSHKeySpec                `json:"sshKeySpec,omitempty"`
 	STSSessionTokenSpec       *STSSessionTokenSpec       `json:"stsSessionTokenSpec,omitempty"`
 	UUIDSpec                  *UUIDSpec                  `json:"uuidSpec,omitempty"`
 	VaultDynamicSecretSpec    *VaultDynamicSecretSpec    `json:"vaultDynamicSecretSpec,omitempty"`
 	WebhookSpec               *WebhookSpec               `json:"webhookSpec,omitempty"`
 	GrafanaSpec               *GrafanaSpec               `json:"grafanaSpec,omitempty"`
+	MFASpec                   *MFASpec                   `json:"mfaSpec,omitempty"`
 }
 
 // ClusterGenerator represents a cluster-wide generator which can be referenced as part of `generatorRef` fields.

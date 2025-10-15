@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package kubernetes implements a provider for Kubernetes secrets, allowing
+// External Secrets to read from and write to Kubernetes Secrets.
 package kubernetes
 
 import (
@@ -19,19 +23,22 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
-	"github.com/external-secrets/external-secrets/pkg/utils/metadata"
+	"github.com/external-secrets/external-secrets/pkg/esutils/metadata"
 )
 
+// PushSecretMetadataSpec defines the metadata configuration for pushing secrets.
 type PushSecretMetadataSpec struct {
 	TargetMergePolicy targetMergePolicy `json:"targetMergePolicy,omitempty"`
 	SourceMergePolicy sourceMergePolicy `json:"sourceMergePolicy,omitempty"`
 
-	Labels      map[string]string `json:"labels,omitempty"`
-	Annotations map[string]string `json:"annotations,omitempty"`
+	Labels          map[string]string `json:"labels,omitempty"`
+	Annotations     map[string]string `json:"annotations,omitempty"`
+	RemoteNamespace string            `json:"remoteNamespace,omitempty"`
 }
 
 type targetMergePolicy string
 
+// Target merge policy constants.
 const (
 	targetMergePolicyMerge   targetMergePolicy = "Merge"
 	targetMergePolicyReplace targetMergePolicy = "Replace"
@@ -40,6 +47,7 @@ const (
 
 type sourceMergePolicy string
 
+// Source merge policy constants.
 const (
 	sourceMergePolicyMerge   sourceMergePolicy = "Merge"
 	sourceMergePolicyReplace sourceMergePolicy = "Replace"

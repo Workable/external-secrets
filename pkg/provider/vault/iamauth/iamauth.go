@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package iamauth provides utilities for AWS IAM authentication using Kubernetes Service Accounts.
 // Mostly sourced from ~/external-secrets/pkg/provider/aws/auth
 package iamauth
 
@@ -39,10 +42,10 @@ import (
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlcfg "sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
-	awsutil "github.com/external-secrets/external-secrets/pkg/provider/aws/util"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	"github.com/external-secrets/external-secrets/pkg/esutils/resolvers"
+	"github.com/external-secrets/external-secrets/pkg/provider/aws/util"
 	"github.com/external-secrets/external-secrets/pkg/provider/vault/util"
-	"github.com/external-secrets/external-secrets/pkg/utils/resolvers"
 )
 
 var (
@@ -54,8 +57,12 @@ const (
 	audienceAnnotation   = "eks.amazonaws.com/audience"
 	defaultTokenAudience = "sts.amazonaws.com"
 
-	STSEndpointEnv                = "AWS_STS_ENDPOINT"
+	// STSEndpointEnv is the environment variable that can be used to override the default STS endpoint.
+	STSEndpointEnv = "AWS_STS_ENDPOINT"
+	// AWSWebIdentityTokenFileEnvVar is the environment variable that points to the service account token file.
 	AWSWebIdentityTokenFileEnvVar = "AWS_WEB_IDENTITY_TOKEN_FILE"
+	// AWSContainerCredentialsFullURIEnvVar is the environment variable that points to the full credentials URI for ECS tasks.
+	AWSContainerCredentialsFullURIEnvVar = "AWS_CONTAINER_CREDENTIALS_FULL_URI"
 )
 
 // DefaultJWTProvider returns a credentials.Provider that calls the AssumeRoleWithWebidentity
@@ -105,6 +112,7 @@ func ResolveEndpoint() endpoints.ResolverFunc {
 	return ResolveEndpointWithServiceMap(customEndpoints)
 }
 
+// ResolveEndpointWithServiceMap returns a ResolverFunc with customizable endpoints for specific services.
 func ResolveEndpointWithServiceMap(customEndpoints map[string]string) endpoints.ResolverFunc {
 	defaultResolver := endpoints.DefaultResolver()
 	return func(service, region string, opts ...func(*endpoints.Options)) (endpoints.ResolvedEndpoint, error) {
@@ -150,7 +158,7 @@ func (p authTokenFetcher) FetchToken(ctx credentials.Context) ([]byte, error) {
 // in the ServiceAccount annotation.
 // If the ClusterSecretStore does not define a namespace it will use the namespace from the ExternalSecret (referentAuth).
 // If the ClusterSecretStore defines the namespace it will take precedence.
-func CredsFromServiceAccount(ctx context.Context, auth esv1beta1.VaultIamAuth, region string, isClusterKind bool, kube kclient.Client, namespace string, jwtProvider util.JwtProviderFactory) (*credentials.Credentials, error) {
+func CredsFromServiceAccount(ctx context.Context, auth esv1.VaultIamAuth, region string, isClusterKind bool, kube kclient.Client, namespace string, jwtProvider vaultutil.JwtProviderFactory) (*credentials.Credentials, error) {
 	name := auth.JWTAuth.ServiceAccountRef.Name
 	if isClusterKind && auth.JWTAuth.ServiceAccountRef.Namespace != nil {
 		namespace = *auth.JWTAuth.ServiceAccountRef.Namespace
@@ -188,14 +196,15 @@ func CredsFromServiceAccount(ctx context.Context, auth esv1beta1.VaultIamAuth, r
 	return credentials.NewCredentials(jwtProv), nil
 }
 
-func CredsFromControllerServiceAccount(ctx context.Context, saname, ns, region string, kube kclient.Client, jwtProvider util.JwtProviderFactory) (*credentials.Credentials, error) {
-	name := saname
-	nmspc := ns
-
+// CredsFromControllerServiceAccount uses a Kubernetes Service Account to acquire temporary
+// credentials using aws.AssumeRoleWithWebIdentity. It will assume the role defined
+// in the ServiceAccount annotation.
+// The namespace of the controller service account is used.
+func CredsFromControllerServiceAccount(ctx context.Context, saName, ns, region string, kube kclient.Client, jwtProvider vaultutil.JwtProviderFactory) (*credentials.Credentials, error) {
 	sa := v1.ServiceAccount{}
 	err := kube.Get(ctx, types.NamespacedName{
-		Name:      name,
-		Namespace: nmspc,
+		Name:      saName,
+		Namespace: ns,
 	}, &sa)
 	if err != nil {
 		return nil, err
@@ -204,7 +213,7 @@ func CredsFromControllerServiceAccount(ctx context.Context, saname, ns, region s
 	// this is used as input to assumeRoleWithWebIdentity
 	roleArn := sa.Annotations[roleARNAnnotation]
 	if roleArn == "" {
-		return nil, fmt.Errorf("an IAM role must be associated with service account %s (namespace: %s)", name, nmspc)
+		return nil, fmt.Errorf("an IAM role must be associated with service account %s (namespace: %s)", saName, ns)
 	}
 
 	tokenAud := sa.Annotations[audienceAnnotation]
@@ -213,7 +222,7 @@ func CredsFromControllerServiceAccount(ctx context.Context, saname, ns, region s
 	}
 	audiences := []string{tokenAud}
 
-	jwtProv, err := jwtProvider(name, nmspc, roleArn, audiences, region)
+	jwtProv, err := jwtProvider(saName, ns, roleArn, audiences, region)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +235,7 @@ func CredsFromControllerServiceAccount(ctx context.Context, saname, ns, region s
 // construct a aws.Credentials object
 // The namespace of the external secret is used if the ClusterSecretStore does not specify a namespace (referentAuth)
 // If the ClusterSecretStore defines a namespace it will take precedence.
-func CredsFromSecretRef(ctx context.Context, auth esv1beta1.VaultIamAuth, storeKind string, kube kclient.Client, namespace string) (*credentials.Credentials, error) {
+func CredsFromSecretRef(ctx context.Context, auth esv1.VaultIamAuth, storeKind string, kube kclient.Client, namespace string) (*credentials.Credentials, error) {
 	akid, err := resolvers.SecretKeyRef(
 		ctx,
 		kube,
@@ -259,13 +268,15 @@ func CredsFromSecretRef(ctx context.Context, auth esv1beta1.VaultIamAuth, storeK
 	return credentials.NewStaticCredentials(akid, sak, sessionToken), err
 }
 
+// STSProvider is a function type that returns an stsiface.STSAPI implementation.
 type STSProvider func(*session.Session) stsiface.STSAPI
 
+// DefaultSTSProvider returns the default sts client which implements stsiface.STSAPI.
 func DefaultSTSProvider(sess *session.Session) stsiface.STSAPI {
 	return sts.New(sess)
 }
 
-// getAWSSession returns the aws session or an error.
+// GetAWSSession returns the aws session or an error.
 func GetAWSSession(config *aws.Config) (*session.Session, error) {
 	handlers := defaults.Handlers()
 	handlers.Build.PushBack(request.WithAppendUserAgent("external-secrets"))

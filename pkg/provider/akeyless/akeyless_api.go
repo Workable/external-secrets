@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,33 +29,40 @@ import (
 	aws_cloud_id "github.com/akeylesslabs/akeyless-go-cloud-id/cloudprovider/aws"
 	azure_cloud_id "github.com/akeylesslabs/akeyless-go-cloud-id/cloudprovider/azure"
 	gcp_cloud_id "github.com/akeylesslabs/akeyless-go-cloud-id/cloudprovider/gcp"
-	"github.com/akeylesslabs/akeyless-go/v3"
+	"github.com/akeylesslabs/akeyless-go/v4"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 	"github.com/external-secrets/external-secrets/pkg/constants"
+	"github.com/external-secrets/external-secrets/pkg/esutils/resolvers"
 	"github.com/external-secrets/external-secrets/pkg/metrics"
-	"github.com/external-secrets/external-secrets/pkg/utils/resolvers"
 )
 
 var (
-	apiErr            akeyless.GenericOpenAPIError
-	ErrItemNotExists  = errors.New("item does not exist")
+	apiErr akeyless.GenericOpenAPIError
+	// ErrItemNotExists is returned when a requested item doesn't exist in Akeyless vault.
+	ErrItemNotExists = errors.New("item does not exist")
+	// ErrTokenNotExists is returned when the authentication token is not available.
 	ErrTokenNotExists = errors.New("token does not exist")
 )
 
+// DefServiceAccountFile is the default path to the Kubernetes service account token.
 const DefServiceAccountFile = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 
+// Tokener is the interface for types that can have tokens set on them.
 type Tokener interface {
 	SetToken(v string)
 	SetUidToken(v string)
 }
 
-func (a *akeylessBase) GetToken(ctx context.Context, accessID, accType, accTypeParam string, k8sAuth *esv1beta1.AkeylessKubernetesAuth) (string, error) {
+// GetToken retrieves an authentication token from Akeyless Gateway.
+// It supports various authentication methods including API key, access key,
+// Kubernetes service account token, and cloud provider-specific methods.
+func (a *akeylessBase) GetToken(ctx context.Context, accessID, accType, accTypeParam string, k8sAuth *esv1.AkeylessKubernetesAuth) (string, error) {
 	authBody := akeyless.NewAuthWithDefaults()
 	authBody.AccessId = akeyless.PtrString(accessID)
 	if accType == "api_key" || accType == "access_key" {
@@ -85,11 +94,14 @@ func (a *akeylessBase) GetToken(ctx context.Context, accessID, accType, accTypeP
 	if err != nil {
 		return "", fmt.Errorf("authentication failed: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 	token := authOut.GetToken()
 	return token, nil
 }
 
+// GetSecretByType retrieves a secret from Akeyless based on its type.
 func (a *akeylessBase) GetSecretByType(ctx context.Context, secretName string, version int32) (string, error) {
 	item, err := a.DescribeItem(ctx, secretName)
 	if err != nil {
@@ -113,7 +125,8 @@ func (a *akeylessBase) GetSecretByType(ctx context.Context, secretName string, v
 	}
 }
 
-func SetBodyToken(t Tokener, ctx context.Context) error {
+// SetBodyToken sets the appropriate token in the request body based on the context.
+func SetBodyToken(ctx context.Context, t Tokener) error {
 	token, ok := ctx.Value(aKeylessToken).(string)
 	if !ok {
 		return ErrTokenNotExists
@@ -130,7 +143,7 @@ func (a *akeylessBase) DescribeItem(ctx context.Context, itemName string) (*akey
 	body := akeyless.DescribeItem{
 		Name: itemName,
 	}
-	if err := SetBodyToken(&body, ctx); err != nil {
+	if err := SetBodyToken(ctx, &body); err != nil {
 		return nil, err
 	}
 	gsvOut, res, err := a.RestAPI.DescribeItem(ctx).Body(body).Execute()
@@ -145,7 +158,9 @@ func (a *akeylessBase) DescribeItem(ctx context.Context, itemName string) (*akey
 	if err != nil {
 		return nil, fmt.Errorf("can't describe item: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 
 	return &gsvOut, nil
 }
@@ -155,7 +170,7 @@ func (a *akeylessBase) GetCertificate(ctx context.Context, certificateName strin
 		Name:    certificateName,
 		Version: &version,
 	}
-	if err := SetBodyToken(&body, ctx); err != nil {
+	if err := SetBodyToken(ctx, &body); err != nil {
 		return "", err
 	}
 	gcvOut, res, err := a.RestAPI.GetCertificateValue(ctx).Body(body).Execute()
@@ -166,7 +181,9 @@ func (a *akeylessBase) GetCertificate(ctx context.Context, certificateName strin
 	if err != nil {
 		return "", fmt.Errorf("can't get certificate value: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 
 	out, err := json.Marshal(gcvOut)
 	if err != nil {
@@ -181,7 +198,7 @@ func (a *akeylessBase) GetRotatedSecrets(ctx context.Context, secretName string,
 		Names:   secretName,
 		Version: &version,
 	}
-	if err := SetBodyToken(&body, ctx); err != nil {
+	if err := SetBodyToken(ctx, &body); err != nil {
 		return "", err
 	}
 	gsvOut, res, err := a.RestAPI.GetRotatedSecretValue(ctx).Body(body).Execute()
@@ -192,7 +209,9 @@ func (a *akeylessBase) GetRotatedSecrets(ctx context.Context, secretName string,
 	if err != nil {
 		return "", fmt.Errorf("can't get rotated secret value: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 	valI, ok := gsvOut["value"]
 	var out []byte
 	if ok {
@@ -220,7 +239,7 @@ func (a *akeylessBase) GetDynamicSecrets(ctx context.Context, secretName string)
 	body := akeyless.GetDynamicSecretValue{
 		Name: secretName,
 	}
-	if err := SetBodyToken(&body, ctx); err != nil {
+	if err := SetBodyToken(ctx, &body); err != nil {
 		return "", err
 	}
 	gsvOut, res, err := a.RestAPI.GetDynamicSecretValue(ctx).Body(body).Execute()
@@ -231,7 +250,9 @@ func (a *akeylessBase) GetDynamicSecrets(ctx context.Context, secretName string)
 	if err != nil {
 		return "", fmt.Errorf("can't get dynamic secret value: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 	out, err := json.Marshal(gsvOut)
 	if err != nil {
 		return "", fmt.Errorf("can't marshal dynamic secret value: %w", err)
@@ -244,7 +265,7 @@ func (a *akeylessBase) GetStaticSecret(ctx context.Context, secretName string, v
 		Names:   []string{secretName},
 		Version: &version,
 	}
-	if err := SetBodyToken(&body, ctx); err != nil {
+	if err := SetBodyToken(ctx, &body); err != nil {
 		return "", err
 	}
 	gsvOut, res, err := a.RestAPI.GetSecretValue(ctx).Body(body).Execute()
@@ -255,12 +276,18 @@ func (a *akeylessBase) GetStaticSecret(ctx context.Context, secretName string, v
 	if err != nil {
 		return "", fmt.Errorf("can't get secret value: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 	val, ok := gsvOut[secretName]
 	if !ok {
 		return "", fmt.Errorf("can't get secret: %v", secretName)
 	}
-	return val, nil
+	valStr, ok := val.(string)
+	if !ok {
+		return "", fmt.Errorf("can't convert secret value to string: %v", val)
+	}
+	return valStr, nil
 }
 
 func (a *akeylessBase) getCloudID(provider, accTypeParam string) (string, error) {
@@ -292,7 +319,7 @@ func (a *akeylessBase) ListSecrets(ctx context.Context, path, tag string) ([]str
 		MinimalView: &MinimalView,
 		Tag:         &tag,
 	}
-	if err := SetBodyToken(&body, ctx); err != nil {
+	if err := SetBodyToken(ctx, &body); err != nil {
 		return nil, err
 	}
 	lipOut, res, err := a.RestAPI.ListItems(ctx).Body(body).Execute()
@@ -303,7 +330,9 @@ func (a *akeylessBase) ListSecrets(ctx context.Context, path, tag string) ([]str
 	if err != nil {
 		return nil, fmt.Errorf("error on get secrets list: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 	if lipOut.Items == nil {
 		return nil, nil
 	}
@@ -323,11 +352,13 @@ func (a *akeylessBase) CreateSecret(ctx context.Context, remoteKey, data string)
 		Value: data,
 		Tags:  &[]string{extSecretManagedTag},
 	}
-	if err := SetBodyToken(&body, ctx); err != nil {
+	if err := SetBodyToken(ctx, &body); err != nil {
 		return err
 	}
 	_, res, err := a.RestAPI.CreateSecret(ctx).Body(body).Execute()
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 	metrics.ObserveAPICall(constants.ProviderAKEYLESSSM, constants.CallAKEYLESSSMCreateSecret, err)
 	return err
 }
@@ -337,11 +368,13 @@ func (a *akeylessBase) UpdateSecret(ctx context.Context, remoteKey, data string)
 		Name:  remoteKey,
 		Value: data,
 	}
-	if err := SetBodyToken(&body, ctx); err != nil {
+	if err := SetBodyToken(ctx, &body); err != nil {
 		return err
 	}
 	_, res, err := a.RestAPI.UpdateSecretVal(ctx).Body(body).Execute()
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 	metrics.ObserveAPICall(constants.ProviderAKEYLESSSM, constants.CallAKEYLESSSMUpdateSecretVal, err)
 	return err
 }
@@ -350,16 +383,18 @@ func (a *akeylessBase) DeleteSecret(ctx context.Context, remoteKey string) error
 	body := akeyless.DeleteItem{
 		Name: remoteKey,
 	}
-	if err := SetBodyToken(&body, ctx); err != nil {
+	if err := SetBodyToken(ctx, &body); err != nil {
 		return err
 	}
 	_, res, err := a.RestAPI.DeleteItem(ctx).Body(body).Execute()
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 	metrics.ObserveAPICall(constants.ProviderAKEYLESSSM, constants.CallAKEYLESSSMDeleteItem, err)
 	return err
 }
 
-func (a *akeylessBase) getK8SServiceAccountJWT(ctx context.Context, kubernetesAuth *esv1beta1.AkeylessKubernetesAuth) (string, error) {
+func (a *akeylessBase) getK8SServiceAccountJWT(ctx context.Context, kubernetesAuth *esv1.AkeylessKubernetesAuth) (string, error) {
 	if kubernetesAuth == nil {
 		return readK8SServiceAccountJWT()
 	}
@@ -398,7 +433,7 @@ func (a *akeylessBase) getJWTFromServiceAccount(ctx context.Context, serviceAcco
 		Namespace: a.namespace,
 		Name:      serviceAccountRef.Name,
 	}
-	if (a.storeKind == esv1beta1.ClusterSecretStoreKind) &&
+	if (a.storeKind == esv1.ClusterSecretStoreKind) &&
 		(serviceAccountRef.Namespace != nil) {
 		ref.Namespace = *serviceAccountRef.Namespace
 	}
@@ -438,7 +473,7 @@ func (a *akeylessBase) getJWTfromServiceAccountToken(ctx context.Context, servic
 			ExpirationSeconds: &expirationSeconds,
 		},
 	}
-	if (a.storeKind == esv1beta1.ClusterSecretStoreKind) &&
+	if (a.storeKind == esv1.ClusterSecretStoreKind) &&
 		(serviceAccountRef.Namespace != nil) {
 		tokenRequest.Namespace = *serviceAccountRef.Namespace
 	}
@@ -455,7 +490,9 @@ func readK8SServiceAccountJWT() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer data.Close()
+	defer func() {
+		_ = data.Close()
+	}()
 
 	contentBytes, err := io.ReadAll(data)
 	if err != nil {

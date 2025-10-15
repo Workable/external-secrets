@@ -1,9 +1,11 @@
 /*
+Copyright © 2025 ESO Maintainer Team
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+    https://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,7 +24,7 @@ import (
 	"github.com/external-secrets/external-secrets-e2e/framework"
 	awscommon "github.com/external-secrets/external-secrets-e2e/suites/provider/cases/aws"
 	"github.com/external-secrets/external-secrets-e2e/suites/provider/cases/common"
-	esapi "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	esapi "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 )
 
 const (
@@ -30,7 +32,7 @@ const (
 	withReferentStaticAuth = "with static referent auth"
 )
 
-var _ = Describe("[aws] ", Label("aws", "parameterstore"), func() {
+var _ = Describe("[aws] ", Label("aws", "parameterstore"), Ordered, func() {
 	f := framework.New("eso-aws-ps")
 	prov := NewFromEnv(f)
 
@@ -50,7 +52,6 @@ var _ = Describe("[aws] ", Label("aws", "parameterstore"), func() {
 		framework.Compose(withStaticAuth, f, common.SyncWithoutTargetName, useStaticAuth),
 		framework.Compose(withStaticAuth, f, common.JSONDataWithoutTargetName, useStaticAuth),
 
-		framework.Compose(withStaticAuth, f, common.SyncV1Alpha1, useStaticAuth),
 		framework.Compose(withStaticAuth, f, common.DeletionPolicyDelete, useStaticAuth),
 
 		// referent auth
@@ -67,9 +68,6 @@ var _ = Describe("[aws] ", Label("aws", "parameterstore"), func() {
 
 func useStaticAuth(tc *framework.TestCase) {
 	tc.ExternalSecret.Spec.SecretStoreRef.Name = awscommon.StaticStoreName
-	if tc.ExternalSecretV1Alpha1 != nil {
-		tc.ExternalSecretV1Alpha1.Spec.SecretStoreRef.Name = awscommon.StaticStoreName
-	}
 }
 
 func useReferentStaticAuth(tc *framework.TestCase) {
