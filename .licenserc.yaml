@@ -21,5 +21,7 @@ header:
     - "**/*.go"
   paths-ignore:
     - "pkg/template/v2/pem_chain.go"
+    - "pkg/provider/vault/symlink.go"
+    - "pkg/provider/vault/symlink_test.go"
 
   comment: on-failure
