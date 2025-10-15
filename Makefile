@@ -72,7 +72,7 @@ FAIL	= (echo ${TIME} ${RED}[FAIL]${CNone} && false)
 # ====================================================================================
 # Conformance
 
-reviewable: generate docs manifests helm.generate helm.schema.update helm.docs lint license.check helm.test.update test.crds.update tf.fmt ## Ensure a PR is ready for review.
+reviewable: generate docs manifests helm.generate helm.schema.update helm.docs lint license.check helm.test.update test.crds.update ## Ensure a PR is ready for review.
 	@go mod tidy
 	@cd e2e/ && go mod tidy
 
@@ -321,35 +321,6 @@ docker.promote: ## Promote the docker image to the registry
 	$(DOCKER) manifest push $(IMAGE_NAME):$(RELEASE_TAG)
 	@$(OK) $(DOCKER) push $(RELEASE_TAG) \
 
-# ====================================================================================
-# Terraform
-
-define run_terraform
-	@cd $(TF_DIR)/$1/infrastructure && \
-	terraform init && \
-	$2 && \
-	cd ../kubernetes && \
-	terraform init && \
-	$3
-endef
-
-tf.plan.%:
-	$(call run_terraform,$*,terraform plan,terraform plan)
-
-tf.apply.%:
-	$(call run_terraform,$*,terraform apply -auto-approve,terraform apply -auto-approve)
-
-tf.destroy.%:
-	@cd $(TF_DIR)/$*/kubernetes && \
-	terraform init && \
-	terraform destroy -auto-approve && \
-	cd ../infrastructure && \
-	terraform init && \
-	terraform destroy -auto-approve
-
-tf.fmt:
-	@cd $(TF_DIR) && \
-	terraform fmt -recursive
 
 # ====================================================================================
 # Help
