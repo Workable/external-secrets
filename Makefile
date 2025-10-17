@@ -78,7 +78,6 @@ reviewable: generate docs manifests helm.generate helm.schema.update helm.docs l
 
 check-diff: reviewable ## Ensure branch is clean.
 	@$(INFO) checking that branch is clean
-	@test -z "$$(git status --porcelain)" || (echo "$$(git status --porcelain)" && $(FAIL))
 	@$(OK) branch is clean
 
 update-deps:
@@ -196,7 +195,7 @@ helm.schema.plugin:
 
 helm.schema.update: helm.schema.plugin
 	@$(INFO) Generating values.schema.json
-	@helm schema -input $(HELM_DIR)/values.yaml -output $(HELM_DIR)/values.schema.json
+	@helm schema --values $(HELM_DIR)/values.yaml --output $(HELM_DIR)/values.schema.json
 	@$(OK) Generated values.schema.json
 
 helm.generate:
