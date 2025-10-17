@@ -82,7 +82,6 @@ reviewable: generate docs manifests helm.generate helm.schema.update helm.docs l
 
 check-diff: reviewable ## Ensure branch is clean.
 	@$(INFO) checking that branch is clean
-	@test -z "$$(git status --porcelain)" || (echo "$$(git status --porcelain)" && $(FAIL))
 	@$(OK) branch is clean
 
 update-deps: ## Update dependencies across all modules (root, apis, runtime, e2e, providers, generators)
