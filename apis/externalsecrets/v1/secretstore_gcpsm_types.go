@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import (
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 )
 
+// SecretVersionSelectionPolicy defines the policy for selecting secret versions in GCP Secret Manager.
 type SecretVersionSelectionPolicy string
 
 const (
@@ -30,6 +31,7 @@ const (
 	SecretVersionSelectionPolicyLatestOrFetch SecretVersionSelectionPolicy = "LatestOrFetch"
 )
 
+// GCPSMAuth defines the authentication methods for Google Cloud Platform Secret Manager.
 type GCPSMAuth struct {
 	// +optional
 	SecretRef *GCPSMAuthSecretRef `json:"secretRef,omitempty"`
@@ -39,12 +41,14 @@ type GCPSMAuth struct {
 	WorkloadIdentityFederation *GCPWorkloadIdentityFederation `json:"workloadIdentityFederation,omitempty"`
 }
 
+// GCPSMAuthSecretRef contains the secret references for GCP Secret Manager authentication.
 type GCPSMAuthSecretRef struct {
 	// The SecretAccessKey is used for authentication
 	// +optional
 	SecretAccessKey esmeta.SecretKeySelector `json:"secretAccessKeySecretRef,omitempty"`
 }
 
+// GCPWorkloadIdentity defines configuration for workload identity authentication to GCP.
 type GCPWorkloadIdentity struct {
 	// +kubebuilder:validation:Required
 	ServiceAccountRef esmeta.ServiceAccountSelector `json:"serviceAccountRef"`
@@ -113,6 +117,18 @@ type GCPWorkloadIdentityFederation struct {
 	// URL is having the expected value.
 	// +kubebuilder:validation:Optional
 	ExternalTokenEndpoint string `json:"externalTokenEndpoint,omitempty"`
+
+	// GCPServiceAccountEmail is the email of the Google Cloud service account to impersonate
+	// after Workload Identity Federation. Use this to grant access through the service account's
+	// IAM bindings (for example roles/secretmanager.secretAccessor). When set, it overrides
+	// service_account_impersonation_url in the external account JSON from credConfig;
+	// when serviceAccountRef is set, it also overrides the "iam.gke.io/gcp-service-account" annotation
+	// on that ServiceAccount.
+	// +kubebuilder:example:="my-gsa@my-project.iam.gserviceaccount.com"
+	// +kubebuilder:validation:Pattern:=^.*@.*\.iam\.gserviceaccount\.com$
+	// +kubebuilder:validation:MinLength:=1
+	// +kubebuilder:validation:Optional
+	GCPServiceAccountEmail string `json:"gcpServiceAccountEmail,omitempty"`
 }
 
 // ConfigMapReference holds the details of a configmap.

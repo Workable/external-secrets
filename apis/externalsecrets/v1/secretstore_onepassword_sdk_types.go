@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,6 +17,8 @@ limitations under the License.
 package v1
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 )
 
@@ -36,14 +38,46 @@ type IntegrationInfo struct {
 	Version string `json:"version,omitempty"`
 }
 
+// CacheConfig configures client-side caching for read operations.
+type CacheConfig struct {
+	// TTL is the time-to-live for cached secrets.
+	// Format: duration string (e.g., "5m", "1h", "30s")
+	// +kubebuilder:default="5m"
+	// +optional
+	TTL metav1.Duration `json:"ttl,omitempty"`
+
+	// MaxSize is the maximum number of secrets to cache.
+	// When the cache is full, least-recently-used entries are evicted.
+	// +kubebuilder:default=100
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	MaxSize int `json:"maxSize,omitempty"`
+}
+
 // OnePasswordSDKProvider configures a store to sync secrets using the 1Password sdk.
+// Exactly one of Vault or Environment must be set.
+// +kubebuilder:validation:AtMostOneOf=vault;environment
 type OnePasswordSDKProvider struct {
 	// Vault defines the vault's name or uuid to access. Do NOT add op:// prefix. This will be done automatically.
-	Vault string `json:"vault"`
+	// Mutually exclusive with Environment.
+	// +optional
+	Vault string `json:"vault,omitempty"`
+	// Environment defines the 1Password Environment ID to read variables from.
+	// Environments are read-only: PushSecret, DeleteSecret, and SecretExists return an error when set.
+	// Mutually exclusive with Vault.
+	// +optional
+	Environment string `json:"environment,omitempty"`
 	// IntegrationInfo specifies the name and version of the integration built using the 1Password Go SDK.
 	// If you don't know which name and version to use, use `DefaultIntegrationName` and `DefaultIntegrationVersion`, respectively.
 	// +optional
 	IntegrationInfo *IntegrationInfo `json:"integrationInfo,omitempty"`
 	// Auth defines the information necessary to authenticate against OnePassword API.
 	Auth *OnePasswordSDKAuth `json:"auth"`
+	// Cache configures client-side caching for read operations (GetSecret, GetSecretMap).
+	// When enabled, secrets are cached with the specified TTL.
+	// Write operations (PushSecret, DeleteSecret) automatically invalidate relevant cache entries.
+	// If omitted, caching is disabled (default).
+	// cache: {} is a valid option to set.
+	// +optional
+	Cache *CacheConfig `json:"cache,omitempty"`
 }

@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ package v1
 import (
 	"testing"
 
-	"k8s.io/apimachinery/pkg/runtime"
+	corev1 "k8s.io/api/core/v1"
 )
 
 const (
@@ -29,13 +29,13 @@ const (
 func TestValidateExternalSecret(t *testing.T) {
 	tests := []struct {
 		name        string
-		obj         runtime.Object
+		obj         *ExternalSecret
 		expectedErr string
 	}{
 		{
 			name:        "nil",
 			obj:         nil,
-			expectedErr: "unexpected type",
+			expectedErr: "external secret cannot be nil during validation",
 		},
 		{
 			name: "deletion policy delete",
@@ -44,6 +44,21 @@ func TestValidateExternalSecret(t *testing.T) {
 					Target: ExternalSecretTarget{
 						DeletionPolicy: DeletionPolicyDelete,
 						CreationPolicy: CreatePolicyMerge,
+					},
+					Data: []ExternalSecretData{
+						{},
+					},
+				},
+			},
+			expectedErr: "deletionPolicy=Delete must not be used when the controller doesn't own the secret. Please set creationPolicy=Owner",
+		},
+		{
+			name: "deletion policy delete with create or merge",
+			obj: &ExternalSecret{
+				Spec: ExternalSecretSpec{
+					Target: ExternalSecretTarget{
+						DeletionPolicy: DeletionPolicyDelete,
+						CreationPolicy: CreatePolicyCreateOrMerge,
 					},
 					Data: []ExternalSecretData{
 						{},
@@ -203,6 +218,335 @@ either data or dataFrom should be specified`,
 				},
 			},
 			expectedErr: "duplicate secretKey found: SERVICE_NAME",
+		},
+		{
+			name: "service account token template with name annotation is rejected",
+			obj: &ExternalSecret{
+				Spec: ExternalSecretSpec{
+					DataFrom: []ExternalSecretDataFromRemoteRef{
+						{
+							SourceRef: &StoreGeneratorSourceRef{
+								GeneratorRef: &GeneratorRef{},
+							},
+						},
+					},
+					Target: ExternalSecretTarget{
+						Template: &ExternalSecretTemplate{
+							Type: corev1.SecretTypeServiceAccountToken,
+							Metadata: ExternalSecretTemplateMetadata{
+								Annotations: map[string]string{
+									corev1.ServiceAccountNameKey: "external-secrets",
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedErr: `template.type="kubernetes.io/service-account-token" with annotation "kubernetes.io/service-account.name" is not allowed`,
+		},
+		{
+			name: "service account token template without name annotation is allowed",
+			obj: &ExternalSecret{
+				Spec: ExternalSecretSpec{
+					DataFrom: []ExternalSecretDataFromRemoteRef{
+						{
+							SourceRef: &StoreGeneratorSourceRef{
+								GeneratorRef: &GeneratorRef{},
+							},
+						},
+					},
+					Target: ExternalSecretTarget{
+						Template: &ExternalSecretTemplate{
+							Type: corev1.SecretTypeServiceAccountToken,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "service account token template with templateFrom annotations target is rejected",
+			obj: &ExternalSecret{
+				Spec: ExternalSecretSpec{
+					DataFrom: []ExternalSecretDataFromRemoteRef{
+						{
+							SourceRef: &StoreGeneratorSourceRef{
+								GeneratorRef: &GeneratorRef{},
+							},
+						},
+					},
+					Target: ExternalSecretTarget{
+						Template: &ExternalSecretTemplate{
+							Type: corev1.SecretTypeServiceAccountToken,
+							TemplateFrom: []TemplateFrom{
+								{Target: TemplateTargetAnnotations},
+							},
+						},
+					},
+				},
+			},
+			expectedErr: `template.type="kubernetes.io/service-account-token" with templateFrom target="Annotations" is not allowed`,
+		},
+		{
+			name: "service account token template with lowercase templateFrom annotations target is rejected",
+			obj: &ExternalSecret{
+				Spec: ExternalSecretSpec{
+					DataFrom: []ExternalSecretDataFromRemoteRef{
+						{
+							SourceRef: &StoreGeneratorSourceRef{
+								GeneratorRef: &GeneratorRef{},
+							},
+						},
+					},
+					Target: ExternalSecretTarget{
+						Template: &ExternalSecretTemplate{
+							Type: corev1.SecretTypeServiceAccountToken,
+							TemplateFrom: []TemplateFrom{
+								{Target: "annotations"},
+							},
+						},
+					},
+				},
+			},
+			expectedErr: `template.type="kubernetes.io/service-account-token" with templateFrom target="Annotations" is not allowed`,
+		},
+		{
+			name: "service account token template with templateFrom data target is allowed",
+			obj: &ExternalSecret{
+				Spec: ExternalSecretSpec{
+					DataFrom: []ExternalSecretDataFromRemoteRef{
+						{
+							SourceRef: &StoreGeneratorSourceRef{
+								GeneratorRef: &GeneratorRef{},
+							},
+						},
+					},
+					Target: ExternalSecretTarget{
+						Template: &ExternalSecretTemplate{
+							Type: corev1.SecretTypeServiceAccountToken,
+							TemplateFrom: []TemplateFrom{
+								{Target: TemplateTargetData},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "bootstrap token template is rejected",
+			obj: &ExternalSecret{
+				Spec: ExternalSecretSpec{
+					DataFrom: []ExternalSecretDataFromRemoteRef{
+						{
+							SourceRef: &StoreGeneratorSourceRef{
+								GeneratorRef: &GeneratorRef{},
+							},
+						},
+					},
+					Target: ExternalSecretTarget{
+						Template: &ExternalSecretTemplate{
+							Type: corev1.SecretTypeBootstrapToken,
+						},
+					},
+				},
+			},
+			expectedErr: `template.type="bootstrap.kubernetes.io/token" is not allowed`,
+		},
+		{
+			name: "service account name annotation without service account token type is allowed",
+			obj: &ExternalSecret{
+				Spec: ExternalSecretSpec{
+					DataFrom: []ExternalSecretDataFromRemoteRef{
+						{
+							SourceRef: &StoreGeneratorSourceRef{
+								GeneratorRef: &GeneratorRef{},
+							},
+						},
+					},
+					Target: ExternalSecretTarget{
+						Template: &ExternalSecretTemplate{
+							Type: corev1.SecretTypeOpaque,
+							Metadata: ExternalSecretTemplateMetadata{
+								Annotations: map[string]string{
+									corev1.ServiceAccountNameKey: "external-secrets",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "templateFrom type target is rejected",
+			obj: &ExternalSecret{
+				Spec: ExternalSecretSpec{
+					DataFrom: []ExternalSecretDataFromRemoteRef{
+						{
+							SourceRef: &StoreGeneratorSourceRef{
+								GeneratorRef: &GeneratorRef{},
+							},
+						},
+					},
+					Target: ExternalSecretTarget{
+						Template: &ExternalSecretTemplate{
+							Metadata: ExternalSecretTemplateMetadata{
+								Annotations: map[string]string{
+									corev1.ServiceAccountNameKey: "victim-sa",
+								},
+							},
+							TemplateFrom: []TemplateFrom{
+								{Target: "type"},
+							},
+						},
+					},
+				},
+			},
+			expectedErr: `templateFrom target="type" is not allowed when targeting a Secret, must be one of "Data", "Annotations" or "Labels"`,
+		},
+		{
+			name: "templateFrom nested metadata.annotations target is rejected",
+			obj: &ExternalSecret{
+				Spec: ExternalSecretSpec{
+					DataFrom: []ExternalSecretDataFromRemoteRef{
+						{
+							SourceRef: &StoreGeneratorSourceRef{
+								GeneratorRef: &GeneratorRef{},
+							},
+						},
+					},
+					Target: ExternalSecretTarget{
+						Template: &ExternalSecretTemplate{
+							Type: corev1.SecretTypeServiceAccountToken,
+							TemplateFrom: []TemplateFrom{
+								{Target: "metadata.annotations"},
+							},
+						},
+					},
+				},
+			},
+			expectedErr: `templateFrom target="metadata.annotations" is not allowed when targeting a Secret, must be one of "Data", "Annotations" or "Labels"`,
+		},
+		{
+			name: "templateFrom mixed case nested annotations target is rejected",
+			obj: &ExternalSecret{
+				Spec: ExternalSecretSpec{
+					DataFrom: []ExternalSecretDataFromRemoteRef{
+						{
+							SourceRef: &StoreGeneratorSourceRef{
+								GeneratorRef: &GeneratorRef{},
+							},
+						},
+					},
+					Target: ExternalSecretTarget{
+						Template: &ExternalSecretTemplate{
+							Type: corev1.SecretTypeServiceAccountToken,
+							TemplateFrom: []TemplateFrom{
+								{Target: "Metadata.Annotations.kubernetes.io/service-account.name"},
+							},
+						},
+					},
+				},
+			},
+			expectedErr: `templateFrom target="Metadata.Annotations.kubernetes.io/service-account.name" is not allowed when targeting a Secret, must be one of "Data", "Annotations" or "Labels"`,
+		},
+		{
+			name: "templateFrom immutable target is rejected",
+			obj: &ExternalSecret{
+				Spec: ExternalSecretSpec{
+					DataFrom: []ExternalSecretDataFromRemoteRef{
+						{
+							SourceRef: &StoreGeneratorSourceRef{
+								GeneratorRef: &GeneratorRef{},
+							},
+						},
+					},
+					Target: ExternalSecretTarget{
+						Template: &ExternalSecretTemplate{
+							TemplateFrom: []TemplateFrom{
+								{Target: "immutable"},
+							},
+						},
+					},
+				},
+			},
+			expectedErr: `templateFrom target="immutable" is not allowed when targeting a Secret, must be one of "Data", "Annotations" or "Labels"`,
+		},
+		{
+			name: "templateFrom well-known targets are allowed in any case",
+			obj: &ExternalSecret{
+				Spec: ExternalSecretSpec{
+					DataFrom: []ExternalSecretDataFromRemoteRef{
+						{
+							SourceRef: &StoreGeneratorSourceRef{
+								GeneratorRef: &GeneratorRef{},
+							},
+						},
+					},
+					Target: ExternalSecretTarget{
+						Template: &ExternalSecretTemplate{
+							TemplateFrom: []TemplateFrom{
+								{Target: ""},
+								{Target: "data"},
+								{Target: TemplateTargetData},
+								{Target: "labels"},
+								{Target: TemplateTargetLabels},
+								{Target: "annotations"},
+								{Target: TemplateTargetAnnotations},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "templateFrom nested target is allowed for a custom resource manifest",
+			obj: &ExternalSecret{
+				Spec: ExternalSecretSpec{
+					DataFrom: []ExternalSecretDataFromRemoteRef{
+						{
+							SourceRef: &StoreGeneratorSourceRef{
+								GeneratorRef: &GeneratorRef{},
+							},
+						},
+					},
+					Target: ExternalSecretTarget{
+						Manifest: &ManifestReference{
+							APIVersion: "argoproj.io/v1alpha1",
+							Kind:       "Application",
+						},
+						Template: &ExternalSecretTemplate{
+							TemplateFrom: []TemplateFrom{
+								{Target: "spec.database.config"},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "templateFrom nested target is rejected for a manifest naming a Secret",
+			obj: &ExternalSecret{
+				Spec: ExternalSecretSpec{
+					DataFrom: []ExternalSecretDataFromRemoteRef{
+						{
+							SourceRef: &StoreGeneratorSourceRef{
+								GeneratorRef: &GeneratorRef{},
+							},
+						},
+					},
+					Target: ExternalSecretTarget{
+						Manifest: &ManifestReference{
+							APIVersion: "v1",
+							Kind:       "Secret",
+						},
+						Template: &ExternalSecretTemplate{
+							TemplateFrom: []TemplateFrom{
+								{Target: "type"},
+							},
+						},
+					},
+				},
+			},
+			expectedErr: `templateFrom target="type" is not allowed when targeting a Secret, must be one of "Data", "Annotations" or "Labels"`,
 		},
 	}
 	for _, tt := range tests {

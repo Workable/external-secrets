@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -35,26 +35,48 @@ var (
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
 	SchemeBuilder = &scheme.Builder{GroupVersion: SchemeGroupVersion}
-	AddToScheme   = SchemeBuilder.AddToScheme
+
+	// AddToScheme adds the types in this group-version to the given scheme.
+	AddToScheme = SchemeBuilder.AddToScheme
 )
 
 var (
-	ECRAuthorizationTokenKind = reflect.TypeOf(ECRAuthorizationToken{}).Name()
-	STSSessionTokenKind       = reflect.TypeOf(STSSessionToken{}).Name()
-	GCRAccessTokenKind        = reflect.TypeOf(GCRAccessToken{}).Name()
-	ACRAccessTokenKind        = reflect.TypeOf(ACRAccessToken{}).Name()
-	PasswordKind              = reflect.TypeOf(Password{}).Name()
-	SSHKeyKind                = reflect.TypeOf(SSHKey{}).Name()
-	WebhookKind               = reflect.TypeOf(Webhook{}).Name()
-	FakeKind                  = reflect.TypeOf(Fake{}).Name()
-	VaultDynamicSecretKind    = reflect.TypeOf(VaultDynamicSecret{}).Name()
-	GithubAccessTokenKind     = reflect.TypeOf(GithubAccessToken{}).Name()
-	QuayAccessTokenKind       = reflect.TypeOf(QuayAccessToken{}).Name()
-	CloudsmithAccessTokenKind = reflect.TypeOf(CloudsmithAccessToken{}).Name()
-	UUIDKind                  = reflect.TypeOf(UUID{}).Name()
-	GrafanaKind               = reflect.TypeOf(Grafana{}).Name()
-	MFAKind                   = reflect.TypeOf(MFA{}).Name()
-	ClusterGeneratorKind      = reflect.TypeOf(ClusterGenerator{}).Name()
+	// ECRAuthorizationTokenKind is the kind name for ECRAuthorizationToken resource.
+	ECRAuthorizationTokenKind = reflect.TypeFor[ECRAuthorizationToken]().Name()
+	// STSSessionTokenKind is the kind name for STSSessionToken resource.
+	STSSessionTokenKind = reflect.TypeFor[STSSessionToken]().Name()
+	// GCRAccessTokenKind is the kind name for GCRAccessToken resource.
+	GCRAccessTokenKind = reflect.TypeFor[GCRAccessToken]().Name()
+	// ACRAccessTokenKind is the kind name for ACRAccessToken resource.
+	ACRAccessTokenKind = reflect.TypeFor[ACRAccessToken]().Name()
+	// PasswordKind is the kind name for Password resource.
+	PasswordKind = reflect.TypeFor[Password]().Name()
+	// SSHKeyKind is the kind name for SSHKey resource.
+	SSHKeyKind = reflect.TypeFor[SSHKey]().Name()
+	// WebhookKind is the kind name for Webhook resource.
+	WebhookKind = reflect.TypeFor[Webhook]().Name()
+	// FakeKind is the kind name for Fake resource.
+	FakeKind = reflect.TypeFor[Fake]().Name()
+	// VaultDynamicSecretKind is the kind name for VaultDynamicSecret resource.
+	VaultDynamicSecretKind = reflect.TypeFor[VaultDynamicSecret]().Name()
+	// GithubAccessTokenKind is the kind name for GithubAccessToken resource.
+	GithubAccessTokenKind = reflect.TypeFor[GithubAccessToken]().Name()
+	// GitlabDeployTokenKind is the kind name for GitlabDeployToken resource.
+	GitlabDeployTokenKind = reflect.TypeFor[GitlabDeployToken]().Name()
+	// QuayAccessTokenKind is the kind name for QuayAccessToken resource.
+	QuayAccessTokenKind = reflect.TypeFor[QuayAccessToken]().Name()
+	// UUIDKind is the kind name for UUID resource.
+	UUIDKind = reflect.TypeFor[UUID]().Name()
+	// GrafanaKind is the kind name for Grafana resource.
+	GrafanaKind = reflect.TypeFor[Grafana]().Name()
+	// MFAKind is the kind name for MFA resource.
+	MFAKind = reflect.TypeFor[MFA]().Name()
+	// ClusterGeneratorKind is the kind name for ClusterGenerator resource.
+	ClusterGeneratorKind = reflect.TypeFor[ClusterGenerator]().Name()
+	// CloudsmithAccessTokenKind is the kind name for CloudsmithAccessToken resource.
+	CloudsmithAccessTokenKind = reflect.TypeFor[CloudsmithAccessToken]().Name()
+	// BeyondtrustWorkloadCredentialsDynamicSecretKind is the kind name for BeyondtrustWorkloadCredentialsDynamicSecret resource.
+	BeyondtrustWorkloadCredentialsDynamicSecretKind = reflect.TypeFor[BeyondtrustWorkloadCredentialsDynamicSecret]().Name()
 )
 
 func init() {
@@ -76,12 +98,14 @@ func init() {
 	*/
 
 	SchemeBuilder.Register(&ACRAccessToken{}, &ACRAccessTokenList{})
+	SchemeBuilder.Register(&BeyondtrustWorkloadCredentialsDynamicSecret{}, &BeyondtrustWorkloadCredentialsDynamicSecretList{})
 	SchemeBuilder.Register(&ClusterGenerator{}, &ClusterGeneratorList{})
 	SchemeBuilder.Register(&CloudsmithAccessToken{}, &CloudsmithAccessTokenList{})
 	SchemeBuilder.Register(&ECRAuthorizationToken{}, &ECRAuthorizationTokenList{})
 	SchemeBuilder.Register(&Fake{}, &FakeList{})
 	SchemeBuilder.Register(&GCRAccessToken{}, &GCRAccessTokenList{})
 	SchemeBuilder.Register(&GithubAccessToken{}, &GithubAccessTokenList{})
+	SchemeBuilder.Register(&GitlabDeployToken{}, &GitlabDeployTokenList{})
 	SchemeBuilder.Register(&QuayAccessToken{}, &QuayAccessTokenList{})
 	SchemeBuilder.Register(&Password{}, &PasswordList{})
 	SchemeBuilder.Register(&SSHKey{}, &SSHKeyList{})

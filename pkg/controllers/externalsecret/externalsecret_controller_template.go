@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,25 +26,34 @@ import (
 
 	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 	"github.com/external-secrets/external-secrets/pkg/controllers/templating"
-	"github.com/external-secrets/external-secrets/pkg/esutils"
-	"github.com/external-secrets/external-secrets/pkg/template"
+	"github.com/external-secrets/external-secrets/runtime/esutils"
+	"github.com/external-secrets/external-secrets/runtime/template"
 
-	_ "github.com/external-secrets/external-secrets/pkg/provider/register" // Loading registered providers.
+	_ "github.com/external-secrets/external-secrets/pkg/register" // Loading registered providers.
 )
 
 // ApplyTemplate merges templates in the following order:
 // * template.Data (highest precedence)
 // * template.TemplateFrom
 // * secret via es.data or es.dataFrom (if template.MergePolicy is Merge, or there is no template)
-// * existing secret keys (if CreationPolicy is Merge).
+// * existing secret keys (if CreationPolicy is Merge or CreateOrMerge).
 func (r *Reconciler) ApplyTemplate(ctx context.Context, es *esv1.ExternalSecret, secret *v1.Secret, dataMap map[string][]byte) error {
+	// the admission webhook rejects these templates already, but a cluster
+	// running with failurePolicy=Ignore or without the webhook must not render them either.
+	// this runs before any mutation, so a rejected template leaves the secret untouched.
+	if err := esv1.ValidateSecretTemplate(es.Spec.Target.Template); err != nil {
+		return err
+	}
+
 	// update metadata (labels, annotations, finalizers) of the secret
 	if err := setMetadata(secret, es); err != nil {
 		return err
 	}
 
-	// we only keep existing keys if creation policy is Merge, otherwise we clear the secret
-	if es.Spec.Target.CreationPolicy != esv1.CreatePolicyMerge {
+	// we only keep existing keys if creation policy is Merge or CreateOrMerge,
+	// otherwise we clear the secret
+	if es.Spec.Target.CreationPolicy != esv1.CreatePolicyMerge &&
+		es.Spec.Target.CreationPolicy != esv1.CreatePolicyCreateOrMerge {
 		secret.Data = make(map[string][]byte)
 	}
 

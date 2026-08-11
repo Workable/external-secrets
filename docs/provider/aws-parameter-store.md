@@ -126,6 +126,7 @@ The SetSecret method for the Parameter Store allows the user to set the value st
 #### Additional Metadata for PushSecret
 
 Optionally, it is possible to configure additional options for the parameter. These are as follows:
+
 - type
 - keyID
 - tier & policies
@@ -179,4 +180,6 @@ You should see something similar to the following output:
 }
 ```
 
---8<-- "snippets/provider-aws-access.md"
+## Authentication
+
+See [AWS Authentication](aws-access.md) for all supported methods: controller pod identity, IRSA, static credentials, session tokens, assuming roles, session tags, and remote key prefixes.

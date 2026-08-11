@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,15 +20,25 @@ import (
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 )
 
-// Passbolt contains a secretRef for the passbolt credentials.
+// PassboltAuth contains a secretRef for the passbolt credentials.
 type PassboltAuth struct {
 	PasswordSecretRef   *esmeta.SecretKeySelector `json:"passwordSecretRef"`
 	PrivateKeySecretRef *esmeta.SecretKeySelector `json:"privateKeySecretRef"`
 }
 
+// PassboltProvider provides access to Passbolt secrets manager.
+// See: https://www.passbolt.com.
 type PassboltProvider struct {
 	// Auth defines the information necessary to authenticate against Passbolt Server
 	Auth *PassboltAuth `json:"auth"`
 	// Host defines the Passbolt Server to connect to
 	Host string `json:"host"`
+	// PEM encoded CA bundle used to validate Passbolt server certificate. Only used
+	// if the Host URL is using HTTPS protocol. If not set the system root certificates
+	// are used to validate the TLS connection.
+	// +optional
+	CABundle []byte `json:"caBundle,omitempty"`
+	// The provider for the CA bundle to use to validate Passbolt server certificate.
+	// +optional
+	CAProvider *CAProvider `json:"caProvider,omitempty"`
 }

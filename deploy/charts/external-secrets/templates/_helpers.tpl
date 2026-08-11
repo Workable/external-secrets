@@ -24,6 +24,20 @@ If release name contains chart name it will be used as a full name.
 {{- end }}
 
 {{/*
+Build a resource name with a suffix, ensuring the total length stays within the
+63-character DNS label limit. The fullname is truncated to (63 - len(suffix))
+chars so that appending the suffix never exceeds the limit.
+Usage: {{ include "external-secrets.componentName" (list . "-webhook") }}
+*/}}
+{{- define "external-secrets.componentName" -}}
+{{- $ctx    := index . 0 -}}
+{{- $suffix := index . 1 -}}
+{{- $maxLen := int (sub 63 (len $suffix)) -}}
+{{- if le $maxLen 0 }}{{- fail (printf "suffix '%s' is too long to fit in a 63-char DNS label" $suffix) }}{{- end -}}
+{{- printf "%s%s" (include "external-secrets.fullname" $ctx | trunc $maxLen | trimSuffix "-") $suffix -}}
+{{- end -}}
+
+{{/*
 Define namespace of chart, useful for multi-namespace deployments
 */}}
 {{- define "external-secrets.namespace" -}}
@@ -173,10 +187,16 @@ Create the name of the service account to use
 Determine the image to use, including if using a flavour.
 */}}
 {{- define "external-secrets.image" -}}
+{{- $repository := "" -}}
+{{- if .context.Values.global.repository -}}
+{{- $repository = .context.Values.global.repository -}}
+{{- else -}}
+{{- $repository = .image.repository -}}
+{{- end -}}
 {{- if .image.flavour -}}
-{{ printf "%s:%s-%s" .image.repository (.image.tag | default .chartAppVersion) .image.flavour }}
+{{ printf "%s:%s-%s" $repository (.image.tag | default .chartAppVersion) .image.flavour }}
 {{- else }}
-{{ printf "%s:%s" .image.repository (.image.tag | default .chartAppVersion) }}
+{{ printf "%s:%s" $repository (.image.tag | default .chartAppVersion) }}
 {{- end }}
 {{- end }}
 

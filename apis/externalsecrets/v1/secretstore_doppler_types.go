@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,15 +22,40 @@ import (
 
 // Set DOPPLER_BASE_URL and DOPPLER_VERIFY_TLS environment variables to override defaults
 
+// DopplerAuth configures authentication with the Doppler API.
+// Exactly one of secretRef or oidcConfig must be specified.
+// +kubebuilder:validation:XValidation:rule="(has(self.secretRef) && !has(self.oidcConfig)) || (!has(self.secretRef) && has(self.oidcConfig))",message="Exactly one of 'secretRef' or 'oidcConfig' must be specified"
 type DopplerAuth struct {
-	SecretRef DopplerAuthSecretRef `json:"secretRef"`
+	// SecretRef authenticates using a Doppler service token stored in a Kubernetes Secret.
+	// +optional
+	SecretRef *DopplerAuthSecretRef `json:"secretRef,omitempty"`
+
+	// OIDCConfig authenticates using Kubernetes ServiceAccount tokens via OIDC.
+	// +optional
+	OIDCConfig *DopplerOIDCAuth `json:"oidcConfig,omitempty"`
 }
 
+// DopplerAuthSecretRef contains the secret reference for accessing the Doppler API.
 type DopplerAuthSecretRef struct {
 	// The DopplerToken is used for authentication.
 	// See https://docs.doppler.com/reference/api#authentication for auth token types.
 	// The Key attribute defaults to dopplerToken if not specified.
 	DopplerToken esmeta.SecretKeySelector `json:"dopplerToken"`
+}
+
+// DopplerOIDCAuth configures OIDC authentication with Doppler using Kubernetes ServiceAccount tokens.
+type DopplerOIDCAuth struct {
+	// Identity is the Doppler Service Account Identity ID configured for OIDC authentication.
+	Identity string `json:"identity"`
+
+	// ServiceAccountRef specifies the Kubernetes ServiceAccount to use for authentication.
+	ServiceAccountRef esmeta.ServiceAccountSelector `json:"serviceAccountRef"`
+
+	// ExpirationSeconds sets the ServiceAccount token validity duration.
+	// Defaults to 10 minutes.
+	// +kubebuilder:default=600
+	// +optional
+	ExpirationSeconds *int64 `json:"expirationSeconds,omitempty"`
 }
 
 // DopplerProvider configures a store to sync secrets using the Doppler provider.

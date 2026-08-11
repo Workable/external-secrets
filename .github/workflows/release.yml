@@ -19,25 +19,6 @@ permissions:
   contents: read
 
 jobs:
-  check-docs-for-release:
-    name: Check Docs for release
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
-        with:
-          egress-policy: audit
-
-      - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.inputs.source_ref }}
-      - name: check-docs
-        run: |
-          DOCS_VERSION=${{ github.event.inputs.version }} make docs.check
   release:
     name: Create Release
     runs-on: ubuntu-latest
@@ -45,18 +26,43 @@ jobs:
       contents: write # to create a release and push new docs
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ github.event.inputs.source_ref }}
+          persist-credentials: false
+
+      - name: Resolve and validate ref
+        id: resolve_ref
+        env:
+          SOURCE_REF: ${{ github.event.inputs.source_ref }}
+        run: |
+          set -e
+          # Try to fetch the ref from remote
+          if git fetch origin "$SOURCE_REF"; then
+            # Remote ref exists, use it
+            RESOLVED_SHA=$(git rev-parse "origin/$SOURCE_REF")
+          elif git rev-parse --verify "$SOURCE_REF" >/dev/null 2>&1; then
+            # Local ref exists (e.g., a tag)
+            RESOLVED_SHA=$(git rev-parse "$SOURCE_REF")
+          else
+            echo "Error: ref '$SOURCE_REF' not found"
+            exit 1
+          fi
+          echo "Resolved to SHA: $RESOLVED_SHA"
+          echo "sha=$RESOLVED_SHA" >> $GITHUB_OUTPUT
+
+      - name: Checkout validated ref
+        env:
+          RESOLVED_SHA: ${{ steps.resolve_ref.outputs.sha }}
+        run: git checkout "$RESOLVED_SHA"
 
       - name: Create Release
-        uses: softprops/action-gh-release@62c96d0c4e8a889135c1f3a25910db8dbe0e85f7 # v2.3.4
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ github.event.inputs.version }}
           target_commitish: ${{ github.event.inputs.source_ref }}
@@ -69,15 +75,20 @@ jobs:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
 
       - name: Configure Git
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${GH_REPO}.git"
 
       - name: Update Docs
         if: github.ref == 'refs/heads/main'
-        run: make docs.publish DOCS_VERSION=${{ github.event.inputs.version }} DOCS_ALIAS=latest
         env:
+          DOCS_VERSION: ${{ github.event.inputs.version }}
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+        run: make docs.publish DOCS_ALIAS=latest
 
   promote:
     name: Promote Container Image
@@ -99,26 +110,27 @@ jobs:
       RELEASE_TAG: ${{ github.event.inputs.version }}${{ matrix.tag_suffix }}
 
     steps:
-      - uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
+      - uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: audit
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         id: setup-go
         with:
           go-version-file: "go.mod"
+          cache: false
 
       - name: Download Go modules
-        if: ${{ steps.setup-go.outputs.cache-hit != 'true' }}
         run: go mod download
 
       - name: Login to Docker
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -128,10 +140,12 @@ jobs:
         run: make docker.promote
 
       - name: Build release manifests
+        env:
+          RELEASE_VERSION: ${{ github.event.inputs.version }}
         run: |
           # temporarily patch the version so we generate manifests with the new version
-          yq e -i '.version = "${{ github.event.inputs.version }}"' ./deploy/charts/external-secrets/Chart.yaml
-          yq e -i '.appVersion = "${{ github.event.inputs.version }}"' ./deploy/charts/external-secrets/Chart.yaml
+          yq e -i ".version = \"$RELEASE_VERSION\"" ./deploy/charts/external-secrets/Chart.yaml
+          yq e -i ".appVersion = \"$RELEASE_VERSION\"" ./deploy/charts/external-secrets/Chart.yaml
           make manifests
 
       - name: Sign promoted image
@@ -142,7 +156,7 @@ jobs:
           image-tag: ${{ env.RELEASE_TAG }}
 
       - name: Update Release
-        uses: softprops/action-gh-release@62c96d0c4e8a889135c1f3a25910db8dbe0e85f7 # v2.3.4
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ github.event.inputs.version }}
           files: |

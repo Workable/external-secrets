@@ -53,34 +53,31 @@ jobs:
     outputs:
       image-tag: ${{ steps.container_info.outputs.image-tag }}
     steps:
-      - uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
+      - uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
+          persist-credentials: false
 
       - name: Setup QEMU
-        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
         with:
           platforms: all
 
       - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
-        with:
-          version: 'v0.4.2'
-          install: true
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Setup Go
-        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         id: setup-go
         with:
           go-version-file: "go.mod"
 
       - name: Download Go modules
-        if: ${{ steps.setup-go.outputs.cache-hit != 'true' }}
         run: go mod download
 
       - name: Fetch History
@@ -88,7 +85,7 @@ jobs:
         run: git fetch --prune --unshallow
 
       - name: Login to Docker
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         if: env.IS_FORK != ''
         with:
           registry: ghcr.io
@@ -100,13 +97,15 @@ jobs:
         shell: bash
         env:
           GITHUB_REF: ${{ github.ref }}
+          INPUT_IMAGE_TAG: ${{ inputs.image-tag }}
+          INPUT_TAG_SUFFIX: ${{ inputs.tag-suffix }}
         run: |
           # rebuild-image
-          if [ "${{ inputs.image-tag }}" != "" ]; then
-            TAG="${{ inputs.image-tag }}${{ inputs.tag-suffix }}"
+          if [ "$INPUT_IMAGE_TAG" != "" ]; then
+            TAG="${INPUT_IMAGE_TAG}${INPUT_TAG_SUFFIX}"
           # main
           elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
-            TAG=${GITHUB_REF#refs/heads/}${{ inputs.tag-suffix }}
+            TAG=${GITHUB_REF#refs/heads/}${INPUT_TAG_SUFFIX}
           # Pull Request
           else
             TAG=$(make docker.tag)
@@ -120,6 +119,7 @@ jobs:
           IMAGE_TAG: ${{ steps.container_info.outputs.image-tag }}
           BUILD_ARGS: ${{ inputs.build-args }}
           DOCKER_BUILD_ARGS: >-
+            --no-cache
             --push
             --platform ${{ inputs.build-platform }}
         run: make docker.build
@@ -130,11 +130,19 @@ jobs:
         env:
           IMAGE_TAG: ${{ steps.container_info.outputs.image-tag }}
           BUILD_ARGS: ${{ inputs.build-args }}
-          DOCKER_BUILD_ARGS: --load
+          DOCKER_BUILD_ARGS: --no-cache --load
         run: make docker.build
-
+      # images are large to the point trivy fails due to no space on disk left
+      # This is a silly attempt to clean up space for trivy to run more
+      # consistently
+      - name: Cleanup unused cache
+        shell: bash
+        run: |
+          docker system prune --force
+          go clean -cache
+          go clean -modcache
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # master
         with:
           image-ref: ${{ inputs.image-name }}:${{ steps.container_info.outputs.image-tag }}
           format: 'table'
@@ -151,11 +159,13 @@ jobs:
       id-token: write #for keyless sign
       packages: write #to update packages with added SBOMs.
     steps:
-      - uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
+      - uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: audit
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Sign image
         if: env.IS_FORK != ''
         uses: ./.github/actions/sign

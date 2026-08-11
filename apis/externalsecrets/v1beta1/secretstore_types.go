@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ type SecretStoreSpec struct {
 	// Used to configure the provider. Only one provider may be set
 	Provider *SecretStoreProvider `json:"provider"`
 
-	// Used to configure http retries if failed
+	// Used to configure HTTP retries on failures.
 	// +optional
 	RetrySettings *SecretStoreRetrySettings `json:"retrySettings,omitempty"`
 
@@ -39,7 +39,7 @@ type SecretStoreSpec struct {
 	// +optional
 	RefreshInterval int `json:"refreshInterval,omitempty"`
 
-	// Used to constraint a ClusterSecretStore to specific namespaces. Relevant only to ClusterSecretStore
+	// Used to constrain a ClusterSecretStore to specific namespaces. Relevant only to ClusterSecretStore.
 	// +optional
 	Conditions []ClusterSecretStoreCondition `json:"conditions,omitempty"`
 }
@@ -83,7 +83,7 @@ type SecretStoreProvider struct {
 	// +optional
 	BitwardenSecretsManager *BitwardenSecretsManagerProvider `json:"bitwardensecretsmanager,omitempty"`
 
-	// Vault configures this store to sync secrets using Hashi provider
+	// Vault configures this store to sync secrets using the HashiCorp Vault provider.
 	// +optional
 	Vault *VaultProvider `json:"vault,omitempty"`
 
@@ -107,7 +107,7 @@ type SecretStoreProvider struct {
 	// +optional
 	YandexLockbox *YandexLockboxProvider `json:"yandexlockbox,omitempty"`
 
-	// Github configures this store to push Github Action secrets using Github API provider
+	// Github configures this store to push GitHub Actions secrets using the GitHub API provider.
 	// +optional
 	Github *GithubProvider `json:"github,omitempty"`
 
@@ -139,7 +139,7 @@ type SecretStoreProvider struct {
 	// +optional
 	Senhasegura *SenhaseguraProvider `json:"senhasegura,omitempty"`
 
-	// Scaleway
+	// Scaleway configures this store to sync secrets using the Scaleway provider.
 	// +optional
 	Scaleway *ScalewayProvider `json:"scaleway,omitempty"`
 
@@ -208,14 +208,17 @@ type SecretStoreProvider struct {
 	CloudruSM *CloudruSMProvider `json:"cloudrusm,omitempty"`
 }
 
+// CAProviderType defines the type of provider to use for CA certificates.
 type CAProviderType string
 
 const (
-	CAProviderTypeSecret    CAProviderType = "Secret"
+	// CAProviderTypeSecret indicates that the CA certificate is stored in a Secret.
+	CAProviderTypeSecret CAProviderType = "Secret"
+	// CAProviderTypeConfigMap indicates that the CA certificate is stored in a ConfigMap.
 	CAProviderTypeConfigMap CAProviderType = "ConfigMap"
 )
 
-// Used to provide custom certificate authority (CA) certificates
+// CAProvider provides custom certificate authority (CA) certificates
 // for a secret store. The CAProvider points to a Secret or ConfigMap resource
 // that contains a PEM-encoded certificate.
 type CAProvider struct {
@@ -245,22 +248,32 @@ type CAProvider struct {
 	Namespace *string `json:"namespace,omitempty"`
 }
 
+// SecretStoreRetrySettings defines configuration for retrying failed requests to the provider.
 type SecretStoreRetrySettings struct {
-	MaxRetries    *int32  `json:"maxRetries,omitempty"`
+	// MaxRetries is the maximum number of retry attempts.
+	MaxRetries *int32 `json:"maxRetries,omitempty"`
+	// RetryInterval is the interval between retry attempts.
 	RetryInterval *string `json:"retryInterval,omitempty"`
 }
 
+// SecretStoreConditionType represents the condition type of the SecretStore.
 type SecretStoreConditionType string
 
 const (
+	// SecretStoreReady indicates that the SecretStore has been successfully configured.
 	SecretStoreReady SecretStoreConditionType = "Ready"
 
-	ReasonInvalidStore          = "InvalidStoreConfiguration"
+	// ReasonInvalidStore indicates that the SecretStore has invalid configuration.
+	ReasonInvalidStore = "InvalidStoreConfiguration"
+	// ReasonInvalidProviderConfig indicates that the provider configuration is invalid.
 	ReasonInvalidProviderConfig = "InvalidProviderConfig"
-	ReasonValidationFailed      = "ValidationFailed"
-	ReasonStoreValid            = "Valid"
+	// ReasonValidationFailed indicates that validation of the SecretStore failed.
+	ReasonValidationFailed = "ValidationFailed"
+	// ReasonStoreValid indicates that the store is valid.
+	ReasonStoreValid = "Valid"
 )
 
+// SecretStoreStatusCondition defines the observed condition of the SecretStore.
 type SecretStoreStatusCondition struct {
 	Type   SecretStoreConditionType `json:"type"`
 	Status corev1.ConditionStatus   `json:"status"`
@@ -279,8 +292,11 @@ type SecretStoreStatusCondition struct {
 type SecretStoreCapabilities string
 
 const (
-	SecretStoreReadOnly  SecretStoreCapabilities = "ReadOnly"
+	// SecretStoreReadOnly indicates that the SecretStore only supports reading secrets.
+	SecretStoreReadOnly SecretStoreCapabilities = "ReadOnly"
+	// SecretStoreWriteOnly indicates that the SecretStore only supports writing secrets.
 	SecretStoreWriteOnly SecretStoreCapabilities = "WriteOnly"
+	// SecretStoreReadWrite indicates that the SecretStore supports both reading and writing secrets.
 	SecretStoreReadWrite SecretStoreCapabilities = "ReadWrite"
 )
 

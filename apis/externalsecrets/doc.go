@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,4 +16,6 @@ limitations under the License.
 
 // +groupName=external-secrets.io
 
+// Package externalsecrets contains API Schema definitions for the externalsecrets API groups.
+// Currently, we have v1, v1alpha1 and v1beta1 versions.
 package externalsecrets

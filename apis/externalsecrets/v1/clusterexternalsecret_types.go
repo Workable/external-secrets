@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -39,6 +39,7 @@ type ClusterExternalSecretSpec struct {
 	ExternalSecretMetadata ExternalSecretMetadata `json:"externalSecretMetadata,omitempty"`
 
 	// The labels to select by to find the Namespaces to create the ExternalSecrets in.
+	//
 	// Deprecated: Use NamespaceSelectors instead.
 	// +optional
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
@@ -48,6 +49,7 @@ type ClusterExternalSecretSpec struct {
 	NamespaceSelectors []*metav1.LabelSelector `json:"namespaceSelectors,omitempty"`
 
 	// Choose namespaces by name. This field is ORed with anything that NamespaceSelectors ends up choosing.
+	//
 	// Deprecated: Use NamespaceSelectors instead.
 	// +optional
 	// +kubebuilder:validation:items:MinLength:=1
@@ -68,10 +70,13 @@ type ExternalSecretMetadata struct {
 	Labels map[string]string `json:"labels,omitempty"`
 }
 
+// ClusterExternalSecretConditionType defines a value type for ClusterExternalSecret conditions.
 type ClusterExternalSecretConditionType string
 
+// ClusterExternalSecretReady is a ClusterExternalSecretConditionType set when the ClusterExternalSecret is ready.
 const ClusterExternalSecretReady ClusterExternalSecretConditionType = "Ready"
 
+// ClusterExternalSecretStatusCondition defines the observed state of a ClusterExternalSecret resource.
 type ClusterExternalSecretStatusCondition struct {
 	Type   ClusterExternalSecretConditionType `json:"type"`
 	Status corev1.ConditionStatus             `json:"status"`
@@ -108,6 +113,7 @@ type ClusterExternalSecretStatus struct {
 	Conditions []ClusterExternalSecretStatusCondition `json:"conditions,omitempty"`
 }
 
+// ClusterExternalSecret is the Schema for the clusterexternalsecrets API.
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:resource:scope=Cluster,categories={external-secrets},shortName=ces
@@ -116,7 +122,6 @@ type ClusterExternalSecretStatus struct {
 // +kubebuilder:printcolumn:name="Store",type=string,JSONPath=`.spec.externalSecretSpec.secretStoreRef.name`
 // +kubebuilder:printcolumn:name="Refresh Interval",type=string,JSONPath=`.spec.refreshTime`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
-// ClusterExternalSecret is the Schema for the clusterexternalsecrets API.
 type ClusterExternalSecret struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

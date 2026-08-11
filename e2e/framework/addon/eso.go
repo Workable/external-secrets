@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -82,7 +82,7 @@ func NewESO(mutators ...MutationFunc) *ESO {
 					Value: "100",
 				},
 				{
-					Key:   "extraArgs.experimental-enable-vault-token-cache",
+					Key:   "extraArgs.enable-vault-token-cache",
 					Value: "true",
 				},
 			},
@@ -171,6 +171,39 @@ func WithCRDs() MutationFunc {
 				eso.HelmChart.Vars[i].Value = "true"
 			}
 		}
+	}
+}
+
+func WithAllowGenericTargets() MutationFunc {
+	return func(eso *ESO) {
+		eso.HelmChart.Vars = append(eso.HelmChart.Vars, StringTuple{
+			Key:   "genericTargets.enabled",
+			Value: "true",
+		}, StringTuple{
+			Key:   "genericTargets.resources[0].apiGroup",
+			Value: "",
+		}, StringTuple{
+			Key:   "genericTargets.resources[0].resources[0]",
+			Value: "configmaps",
+		}, StringTuple{
+			Key:   "genericTargets.resources[0].verbs[0]",
+			Value: "create",
+		}, StringTuple{
+			Key:   "genericTargets.resources[0].verbs[1]",
+			Value: "delete",
+		}, StringTuple{
+			Key:   "genericTargets.resources[0].verbs[2]",
+			Value: "list",
+		}, StringTuple{
+			Key:   "genericTargets.resources[0].verbs[3]",
+			Value: "get",
+		}, StringTuple{
+			Key:   "genericTargets.resources[0].verbs[4]",
+			Value: "patch",
+		}, StringTuple{
+			Key:   "genericTargets.resources[0].verbs[5]",
+			Value: "watch",
+		})
 	}
 }
 

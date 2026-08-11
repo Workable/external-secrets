@@ -26,6 +26,28 @@ spec:
       registry: string
       scope: string
       tenantId: string
+    beyondtrustWorkloadCredentialsDynamicSecretSpec:
+      controller: string
+      provider:
+        auth:
+          apikey:
+            token:
+              key: string
+              name: string
+              namespace: string
+        caBundle: c3RyaW5n
+        caProvider:
+          key: string
+          name: string
+          namespace: string
+          type: "Secret" # "Secret", "ConfigMap"
+        folderPath: string
+        server:
+          apiUrl: string
+          siteId: string
+      retrySettings:
+        maxRetries: 1
+        retryInterval: string
     cloudsmithAccessTokenSpec:
       apiUrl: string
       orgSlug: string
@@ -87,6 +109,7 @@ spec:
             name: string
             namespace: string
           externalTokenEndpoint: string
+          gcpServiceAccountEmail: "my-gsa@my-project.iam.gserviceaccount.com"
           serviceAccountRef:
             audiences: [] # minItems 0 of type string
             name: string
@@ -104,6 +127,20 @@ spec:
       permissions: {}
       repositories: [] # minItems 0 of type string
       url: string
+    gitlabDeployTokenSpec:
+      auth:
+        token:
+          secretRef:
+            key: string
+            name: string
+            namespace: string
+      expiresAt: 2024-10-11T12:48:44Z
+      groupID: string
+      name: string
+      projectID: string
+      scopes: [string] # minItems 1 of type string
+      url: string
+      username: string
     grafanaSpec:
       auth:
         basic:
@@ -117,6 +154,7 @@ spec:
       serviceAccount:
         name: string
         role: string
+        secondsToLive: 1
       url: string
     mfaSpec:
       algorithm: string
@@ -130,8 +168,10 @@ spec:
     passwordSpec:
       allowRepeat: false
       digits: 1
+      encoding: "raw"
       length: 24
       noUpper: false
+      secretKeys: [string] # minItems 1 of type string
       symbolCharacters: string
       symbols: 1
     quayAccessTokenSpec:
@@ -175,6 +215,7 @@ spec:
     vaultDynamicSecretSpec:
       allowEmptyResponse: false
       controller: string
+      getParameters: {}
       method: string
       parameters: 
       path: string
@@ -201,6 +242,29 @@ spec:
               key: string
               name: string
               namespace: string
+            vaultRole: string
+          gcp:
+            location: string
+            path: "gcp"
+            projectID: string
+            role: string
+            secretRef:
+              secretAccessKeySecretRef:
+                key: string
+                name: string
+                namespace: string
+            serviceAccountRef:
+              audiences: [] # minItems 0 of type string
+              name: string
+              namespace: string
+            workloadIdentity:
+              clusterLocation: string
+              clusterName: string
+              clusterProjectID: string
+              serviceAccountRef:
+                audiences: [] # minItems 0 of type string
+                name: string
+                namespace: string
           iam:
             externalID: string
             jwt:
@@ -327,4 +391,4 @@ spec:
           name: string
       timeout: string
       url: string
-  kind: "ACRAccessToken" # "ACRAccessToken", "CloudsmithAccessToken", "ECRAuthorizationToken", "Fake", "GCRAccessToken", "GithubAccessToken", "QuayAccessToken", "Password", "SSHKey", "STSSessionToken", "UUID", "VaultDynamicSecret", "Webhook", "Grafana"
+  kind: "ACRAccessToken" # "ACRAccessToken", "BeyondtrustWorkloadCredentialsDynamicSecret", "CloudsmithAccessToken", "ECRAuthorizationToken", "Fake", "GCRAccessToken", "GithubAccessToken", "GitlabDeployToken", "QuayAccessToken", "Password", "SSHKey", "STSSessionToken", "UUID", "VaultDynamicSecret", "Webhook", "Grafana", "MFA"

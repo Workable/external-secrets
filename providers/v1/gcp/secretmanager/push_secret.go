@@ -1,0 +1,233 @@
+/*
+Copyright © The ESO Authors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package secretmanager
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"maps"
+
+	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+	"github.com/tidwall/sjson"
+
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	"github.com/external-secrets/external-secrets/runtime/esutils/metadata"
+)
+
+// PushSecretMetadataMergePolicy defines how metadata should be merged when pushing secrets.
+type PushSecretMetadataMergePolicy string
+
+const (
+	// PushSecretMetadataMergePolicyReplace indicates that metadata should be replaced entirely.
+	PushSecretMetadataMergePolicyReplace PushSecretMetadataMergePolicy = "Replace"
+	// PushSecretMetadataMergePolicyMerge indicates that metadata should be merged.
+	PushSecretMetadataMergePolicyMerge PushSecretMetadataMergePolicy = "Merge"
+)
+
+// PushSecretMetadataSpec defines the metadata specification for pushed secrets.
+type PushSecretMetadataSpec struct {
+	Annotations map[string]string             `json:"annotations,omitempty"`
+	Labels      map[string]string             `json:"labels,omitempty"`
+	Topics      []string                      `json:"topics,omitempty"`
+	MergePolicy PushSecretMetadataMergePolicy `json:"mergePolicy,omitempty"`
+	CMEKKeyName string                        `json:"cmekKeyName,omitempty"`
+	// ReplicationLocation defines a single user-managed replication location
+	// for the secret.
+	//
+	// Deprecated: use ReplicationLocations instead. When both fields are set,
+	// ReplicationLocations takes precedence and ReplicationLocation is ignored.
+	ReplicationLocation string `json:"replicationLocation,omitempty"`
+	// ReplicationLocations defines one or more user-managed replication
+	// locations for the secret. This is useful for High Availability across
+	// regions, since Secret Manager does not support multi-regional locations
+	// (e.g. "us", "eu", "ca").
+	ReplicationLocations []string `json:"replicationLocations,omitempty"`
+}
+
+// buildReplication converts a PushSecretMetadataSpec into the
+// secretmanagerpb.Replication to use when creating a new Secret. It returns
+// nil when the spec supplies neither replication locations nor a CMEK key, so
+// the caller keeps the default (Google-managed) automatic replication.
+//
+// Resolution order:
+//
+//   - If ReplicationLocations (or the deprecated ReplicationLocation) are set,
+//     emit UserManaged replication with one replica per location; apply
+//     CMEKKeyName to every replica when it is set.
+//   - If only CMEKKeyName is set, emit Automatic replication carrying the
+//     customer-managed encryption key so the user's choice is not silently
+//     dropped.
+//
+// When both ReplicationLocations and ReplicationLocation are set,
+// ReplicationLocations takes precedence to avoid silently merging values;
+// ReplicationLocation is treated as deprecated.
+func buildReplication(spec PushSecretMetadataSpec) *secretmanagerpb.Replication {
+	locations := spec.ReplicationLocations
+	if len(locations) == 0 && spec.ReplicationLocation != "" {
+		locations = []string{spec.ReplicationLocation}
+	}
+
+	var cmek *secretmanagerpb.CustomerManagedEncryption
+	if spec.CMEKKeyName != "" {
+		cmek = &secretmanagerpb.CustomerManagedEncryption{
+			KmsKeyName: spec.CMEKKeyName,
+		}
+	}
+
+	if cmek != nil && len(locations) == 0 {
+		return &secretmanagerpb.Replication{
+			Replication: &secretmanagerpb.Replication_Automatic_{
+				Automatic: &secretmanagerpb.Replication_Automatic{
+					CustomerManagedEncryption: cmek,
+				},
+			},
+		}
+	}
+
+	if len(locations) == 0 {
+		return nil
+	}
+
+	replicas := make([]*secretmanagerpb.Replication_UserManaged_Replica, 0, len(locations))
+	for _, loc := range locations {
+		replicas = append(replicas, &secretmanagerpb.Replication_UserManaged_Replica{
+			Location:                  loc,
+			CustomerManagedEncryption: cmek,
+		})
+	}
+	return &secretmanagerpb.Replication{
+		Replication: &secretmanagerpb.Replication_UserManaged_{
+			UserManaged: &secretmanagerpb.Replication_UserManaged{
+				Replicas: replicas,
+			},
+		},
+	}
+}
+
+func newPushSecretBuilder(payload []byte, data esv1.PushSecretData) (pushSecretBuilder, error) {
+	if data.GetProperty() == "" {
+		return &psBuilder{
+			payload:        payload,
+			pushSecretData: data,
+		}, nil
+	}
+
+	if data.GetMetadata() != nil {
+		return nil, errors.New("cannot specify metadata and property at the same time")
+	}
+
+	return &propertyPSBuilder{
+		payload:        payload,
+		pushSecretData: data,
+	}, nil
+}
+
+type pushSecretBuilder interface {
+	buildMetadata(annotations, labels map[string]string, topics []*secretmanagerpb.Topic) (map[string]string, map[string]string, []string, error)
+	needUpdate(original []byte) bool
+	buildData(original []byte) ([]byte, error)
+}
+
+type psBuilder struct {
+	payload        []byte
+	pushSecretData esv1.PushSecretData
+}
+
+func (b *psBuilder) buildMetadata(_, labels map[string]string, _ []*secretmanagerpb.Topic) (map[string]string, map[string]string, []string, error) {
+	if manager, ok := labels[managedByKey]; !ok || manager != managedByValue {
+		return nil, nil, nil, fmt.Errorf("secret %v is not managed by external secrets", b.pushSecretData.GetRemoteKey())
+	}
+
+	var meta *metadata.PushSecretMetadata[PushSecretMetadataSpec]
+	if b.pushSecretData.GetMetadata() != nil {
+		var err error
+		meta, err = metadata.ParseMetadataParameters[PushSecretMetadataSpec](b.pushSecretData.GetMetadata())
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to parse PushSecret metadata: %w", err)
+		}
+	}
+
+	var spec PushSecretMetadataSpec
+	if meta != nil {
+		spec = meta.Spec
+	}
+
+	newLabels := map[string]string{}
+	maps.Copy(newLabels, spec.Labels)
+	if spec.MergePolicy == PushSecretMetadataMergePolicyMerge {
+		// Keep labels from the existing GCP Secret Manager Secret
+		maps.Copy(newLabels, labels)
+	}
+	newLabels[managedByKey] = managedByValue
+
+	return spec.Annotations, newLabels, spec.Topics, nil
+}
+
+func (b *psBuilder) needUpdate(original []byte) bool {
+	if original == nil {
+		return true
+	}
+
+	return !bytes.Equal(b.payload, original)
+}
+
+func (b *psBuilder) buildData(_ []byte) ([]byte, error) {
+	return b.payload, nil
+}
+
+type propertyPSBuilder struct {
+	payload        []byte
+	pushSecretData esv1.PushSecretData
+}
+
+func (b *propertyPSBuilder) buildMetadata(annotations, labels map[string]string, topics []*secretmanagerpb.Topic) (map[string]string, map[string]string, []string, error) {
+	newAnnotations := map[string]string{}
+	newLabels := map[string]string{}
+	if annotations != nil {
+		newAnnotations = annotations
+	}
+	if labels != nil {
+		newLabels = labels
+	}
+
+	newLabels[managedByKey] = managedByValue
+
+	result := make([]string, 0, len(topics))
+	for _, t := range topics {
+		result = append(result, t.Name)
+	}
+
+	return newAnnotations, newLabels, result, nil
+}
+
+func (b *propertyPSBuilder) needUpdate(original []byte) bool {
+	if original == nil {
+		return true
+	}
+
+	val, _ := getDataByProperty(original, b.pushSecretData.GetProperty())
+	return !val.Exists() || val.String() != string(b.payload)
+}
+
+func (b *propertyPSBuilder) buildData(original []byte) ([]byte, error) {
+	var base []byte
+	if original != nil {
+		base = original
+	}
+	return sjson.SetBytes(base, b.pushSecretData.GetProperty(), b.payload)
+}

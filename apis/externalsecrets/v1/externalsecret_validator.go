@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,29 +20,36 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
-	"k8s.io/apimachinery/pkg/runtime"
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
+// Ensures ExternalSecretValidator implements the admission.CustomValidator interface correctly.
+var _ admission.Validator[*ExternalSecret] = &ExternalSecretValidator{}
+
+// ExternalSecretValidator implements a validating webhook for ExternalSecrets.
 type ExternalSecretValidator struct{}
 
-func (esv *ExternalSecretValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
+// ValidateCreate validates the creation of an external secret object.
+func (in *ExternalSecretValidator) ValidateCreate(_ context.Context, obj *ExternalSecret) (warnings admission.Warnings, err error) {
 	return validateExternalSecret(obj)
 }
 
-func (esv *ExternalSecretValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
+// ValidateUpdate validates the update of an external secret object.
+func (in *ExternalSecretValidator) ValidateUpdate(_ context.Context, _, newObj *ExternalSecret) (warnings admission.Warnings, err error) {
 	return validateExternalSecret(newObj)
 }
 
-func (esv *ExternalSecretValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+// ValidateDelete validates the deletion of an external secret object.
+func (in *ExternalSecretValidator) ValidateDelete(_ context.Context, _ *ExternalSecret) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
 
-func validateExternalSecret(obj runtime.Object) (admission.Warnings, error) {
-	es, ok := obj.(*ExternalSecret)
-	if !ok {
-		return nil, errors.New("unexpected type")
+func validateExternalSecret(es *ExternalSecret) (admission.Warnings, error) {
+	if es == nil {
+		return nil, errors.New("external secret cannot be nil during validation")
 	}
 
 	var errs error
@@ -52,6 +59,14 @@ func validateExternalSecret(obj runtime.Object) (admission.Warnings, error) {
 
 	if len(es.Spec.Data) == 0 && len(es.Spec.DataFrom) == 0 {
 		errs = errors.Join(errs, errors.New("either data or dataFrom should be specified"))
+	}
+
+	if err := validatePrivilegedTemplate(es.Spec.Target.Template); err != nil {
+		errs = errors.Join(errs, err)
+	}
+
+	if err := validateTemplateFromTarget(es); err != nil {
+		errs = errors.Join(errs, err)
 	}
 
 	for _, ref := range es.Spec.DataFrom {
@@ -99,13 +114,98 @@ func validateExtractFindGenerator(ref ExternalSecretDataFromRemoteRef) error {
 
 func validatePolicies(es *ExternalSecret) error {
 	var errs error
-	if (es.Spec.Target.DeletionPolicy == DeletionPolicyDelete && es.Spec.Target.CreationPolicy == CreatePolicyMerge) ||
-		(es.Spec.Target.DeletionPolicy == DeletionPolicyDelete && es.Spec.Target.CreationPolicy == CreatePolicyNone) {
+	if es.Spec.Target.DeletionPolicy == DeletionPolicyDelete &&
+		(es.Spec.Target.CreationPolicy == CreatePolicyMerge ||
+			es.Spec.Target.CreationPolicy == CreatePolicyNone ||
+			es.Spec.Target.CreationPolicy == CreatePolicyCreateOrMerge) {
 		errs = errors.Join(errs, errors.New("deletionPolicy=Delete must not be used when the controller doesn't own the secret. Please set creationPolicy=Owner"))
 	}
 
 	if es.Spec.Target.DeletionPolicy == DeletionPolicyMerge && es.Spec.Target.CreationPolicy == CreatePolicyNone {
 		errs = errors.Join(errs, errors.New("deletionPolicy=Merge must not be used with creationPolicy=None. There is no Secret to merge with"))
+	}
+
+	return errs
+}
+
+// validatePrivilegedTemplate rejects templates with specific types and annotations combinations
+// to prevent users from creating long-lived tokens beyond the scope of the defined RBAC.
+func validatePrivilegedTemplate(tpl *ExternalSecretTemplate) error {
+	if tpl == nil {
+		return nil
+	}
+	//nolint:exhaustive // don't need exhaustive
+	switch tpl.Type {
+	case corev1.SecretTypeServiceAccountToken:
+		if _, ok := tpl.Metadata.Annotations[corev1.ServiceAccountNameKey]; ok {
+			return fmt.Errorf("template.type=%q with annotation %q is not allowed", corev1.SecretTypeServiceAccountToken, corev1.ServiceAccountNameKey)
+		}
+		for _, tf := range tpl.TemplateFrom {
+			if strings.EqualFold(tf.Target, TemplateTargetAnnotations) {
+				return fmt.Errorf("template.type=%q with templateFrom target=%q is not allowed", corev1.SecretTypeServiceAccountToken, TemplateTargetAnnotations)
+			}
+		}
+	case corev1.SecretTypeBootstrapToken:
+		return fmt.Errorf("template.type=%q is not allowed", corev1.SecretTypeBootstrapToken)
+	}
+	return nil
+}
+
+// ValidateSecretTemplate applies every template restriction that must hold when an
+// ExternalSecret renders into a Secret. The admission webhook reaches these rules through
+// validateExternalSecret; the controller calls this so the same set is enforced when no
+// webhook sits in front of it.
+func ValidateSecretTemplate(tpl *ExternalSecretTemplate) error {
+	return errors.Join(
+		validatePrivilegedTemplate(tpl),
+		ValidateSecretTemplateFromTargets(tpl),
+	)
+}
+
+// isManifestSecretTarget reports whether the ExternalSecret renders into a core/v1 Secret.
+// That is the default target, and it is also reachable through an explicit manifest
+// reference naming a Secret.
+func isManifestSecretTarget(es *ExternalSecret) bool {
+	manifest := es.Spec.Target.Manifest
+	if manifest == nil {
+		return true
+	}
+	return manifest.APIVersion == "v1" && manifest.Kind == "Secret"
+}
+
+// validateTemplateFromTarget restricts templateFrom targets whenever the ExternalSecret
+// renders into a Secret.
+func validateTemplateFromTarget(es *ExternalSecret) error {
+	if !isManifestSecretTarget(es) {
+		return nil
+	}
+
+	return ValidateSecretTemplateFromTargets(es.Spec.Target.Template)
+}
+
+// ValidateSecretTemplateFromTargets restricts templateFrom targets to the well-known Secret
+// fields. The templating engine treats any other value as a dotted path into the rendered
+// object, which would let a user write privileged top-level fields such as type, immutable
+// or metadata.ownerReferences and so sidestep validatePrivilegedTemplate. Nested paths
+// remain available for custom resource targets.
+func ValidateSecretTemplateFromTargets(tpl *ExternalSecretTemplate) error {
+	if tpl == nil {
+		return nil
+	}
+
+	var errs error
+	for _, tf := range tpl.TemplateFrom {
+		switch {
+		case tf.Target == "",
+			strings.EqualFold(tf.Target, TemplateTargetData),
+			strings.EqualFold(tf.Target, TemplateTargetAnnotations),
+			strings.EqualFold(tf.Target, TemplateTargetLabels):
+			continue
+		}
+
+		errs = errors.Join(errs, fmt.Errorf(
+			"templateFrom target=%q is not allowed when targeting a Secret, must be one of %q, %q or %q",
+			tf.Target, TemplateTargetData, TemplateTargetAnnotations, TemplateTargetLabels))
 	}
 
 	return errs

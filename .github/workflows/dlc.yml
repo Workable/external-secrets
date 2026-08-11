@@ -16,23 +16,29 @@ jobs:
   fossa-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: step-security/harden-runner@f4a75cfd619ee5ce8d5b864b0d183aff3c69b55a # v2.13.1
+      - uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         if: ${{ env.HAS_FOSSA_KEY == 'true' }}
         with:
           egress-policy: audit
       - name: "Checkout Code"
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ env.HAS_FOSSA_KEY == 'true' }}
+        with:
+          persist-credentials: false
 
       - name: "Run FOSSA Scan"
-        uses: fossas/fossa-action@3ebcea1862c6ffbd5cf1b4d0bd6b3fe7bd6f2cac # main
+        uses: fossas/fossa-action@29693cc50323968e039056be419b32989fc5880c # main
         if: ${{ env.HAS_FOSSA_KEY == 'true' }}
+        env:
+          FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
         with:
-          api-key: ${{secrets.FOSSA_API_KEY}}
+          api-key: ${{ env.FOSSA_API_KEY }}
 
       - name: "Run FOSSA Test"
-        uses: fossas/fossa-action@3ebcea1862c6ffbd5cf1b4d0bd6b3fe7bd6f2cac # main
+        uses: fossas/fossa-action@29693cc50323968e039056be419b32989fc5880c # main
         if: ${{ env.HAS_FOSSA_KEY == 'true' }}
+        env:
+          FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
         with:
-          api-key: ${{secrets.FOSSA_API_KEY}}
+          api-key: ${{ env.FOSSA_API_KEY }}
           run-tests: true

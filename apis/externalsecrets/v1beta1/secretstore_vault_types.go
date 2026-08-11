@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,15 +20,17 @@ import (
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 )
 
+// VaultKVStoreVersion defines the version of the KV store in Vault.
 type VaultKVStoreVersion string
 
 const (
+	// VaultKVStoreV1 represents version 1 of the Vault KV store.
 	VaultKVStoreV1 VaultKVStoreVersion = "v1"
+	// VaultKVStoreV2 represents version 2 of the Vault KV store.
 	VaultKVStoreV2 VaultKVStoreVersion = "v2"
 )
 
-// Configures an store to sync secrets using a HashiCorp Vault
-// KV backend.
+// VaultProvider configures a store to sync secrets using a HashiCorp Vault KV backend.
 type VaultProvider struct {
 	// Auth configures how secret-manager authenticates with the Vault server.
 	Auth *VaultAuth `json:"auth,omitempty"`
@@ -188,8 +190,7 @@ type VaultAppRole struct {
 	SecretRef esmeta.SecretKeySelector `json:"secretRef"`
 }
 
-// Authenticate against Vault using a Kubernetes ServiceAccount token stored in
-// a Secret.
+// VaultKubernetesAuth authenticates against Vault using a Kubernetes ServiceAccount token stored in a Secret.
 type VaultKubernetesAuth struct {
 	// Path where the Kubernetes authentication backend is mounted in Vault, e.g:
 	// "kubernetes"
@@ -244,7 +245,7 @@ type VaultAwsAuth struct {
 	JWTAuth *VaultAwsJWTAuth `json:"jwt,omitempty"`
 }
 
-// VaultAWSAuthSecretRef holds secret references for AWS credentials
+// VaultAwsAuthSecretRef holds secret references for AWS credentials
 // both AccessKeyID and SecretAccessKey must be defined in order to properly authenticate.
 type VaultAwsAuthSecretRef struct {
 	// The AccessKeyID is used for authentication
@@ -277,6 +278,7 @@ type VaultKubernetesServiceAccountTokenAuth struct {
 	// Optional audiences field that will be used to request a temporary Kubernetes service
 	// account token for the service account referenced by `serviceAccountRef`.
 	// Defaults to a single audience `vault` it not specified.
+	//
 	// Deprecated: use serviceAccountRef.Audiences instead
 	// +optional
 	Audiences *[]string `json:"audiences,omitempty"`
@@ -284,6 +286,7 @@ type VaultKubernetesServiceAccountTokenAuth struct {
 	// Optional expiration time in seconds that will be used to request a temporary
 	// Kubernetes service account token for the service account referenced by
 	// `serviceAccountRef`.
+	//
 	// Deprecated: this will be removed in the future.
 	// Defaults to 10 minutes.
 	// +optional

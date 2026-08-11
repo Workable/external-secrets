@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@ limitations under the License.
 
 package v1
 
-// A reference to a specific 'key' within a Secret resource.
+// SecretKeySelector is a reference to a specific 'key' within a Secret resource.
 // In some instances, `key` is a required field.
 type SecretKeySelector struct {
 	// The name of the Secret resource being referred to.
@@ -42,7 +42,7 @@ type SecretKeySelector struct {
 	Key string `json:"key,omitempty"`
 }
 
-// A reference to a ServiceAccount resource.
+// ServiceAccountSelector is a reference to a ServiceAccount resource.
 type ServiceAccountSelector struct {
 	// The name of the ServiceAccount resource being referred to.
 	// +kubebuilder:validation:MinLength:=1

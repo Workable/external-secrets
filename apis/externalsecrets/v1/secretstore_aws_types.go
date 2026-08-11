@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -46,13 +46,13 @@ type AWSAuthSecretRef struct {
 	SessionToken *esmeta.SecretKeySelector `json:"sessionTokenSecretRef,omitempty"`
 }
 
-// Authenticate against AWS using service account tokens.
+// AWSJWTAuth stores reference to Authenticate against AWS using service account tokens.
 type AWSJWTAuth struct {
 	ServiceAccountRef *esmeta.ServiceAccountSelector `json:"serviceAccountRef,omitempty"`
 }
 
 // AWSServiceType is a enum that defines the service/API that is used to fetch the secrets.
-// +kubebuilder:validation:Enum=SecretsManager;ParameterStore
+// +kubebuilder:validation:Enum=SecretsManager;ParameterStore;CertificateManager
 type AWSServiceType string
 
 const (
@@ -62,6 +62,9 @@ const (
 	// AWSServiceParameterStore is the AWS SystemsManager ParameterStore service.
 	// see: https://docs.aws.amazon.com/systems-manager/latest/userguide/systems-manager-parameter-store.html
 	AWSServiceParameterStore AWSServiceType = "ParameterStore"
+	// AWSServiceCertificateManager is the AWS Certificate Manager service.
+	// see: https://docs.aws.amazon.com/acm/latest/userguide/acm-overview.html
+	AWSServiceCertificateManager AWSServiceType = "CertificateManager"
 )
 
 // SecretsManager defines how the provider behaves when interacting with AWS
@@ -79,16 +82,33 @@ type SecretsManager struct {
 	// The number of days from 7 to 30 that Secrets Manager waits before
 	// permanently deleting the secret. You can't use both this parameter and
 	// ForceDeleteWithoutRecovery in the same call. If you don't use either,
-	// then by default Secrets Manager uses a 30 day recovery window.
+	// then by default Secrets Manager uses a 30-day recovery window.
 	// see: https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_DeleteSecret.html#SecretsManager-DeleteSecret-request-RecoveryWindowInDays
 	// +optional
 	RecoveryWindowInDays int64 `json:"recoveryWindowInDays,omitempty"`
 }
 
+// Tag is a key-value pair that can be attached to an AWS resource.
+// see: https://docs.aws.amazon.com/general/latest/gr/aws_tagging.html
 type Tag struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
 }
+
+// SessionTagsPolicy defines how STS session tags are handled.
+// +kubebuilder:validation:Enum=None;Simple;Custom
+type SessionTagsPolicy string
+
+const (
+	// SessionTagsPolicyNone is the default behavior - no session tags are added.
+	SessionTagsPolicyNone SessionTagsPolicy = "None"
+	// SessionTagsPolicySimple automatically adds esoNamespace, esoStoreName, and esoStoreKind
+	// session tags.
+	SessionTagsPolicySimple SessionTagsPolicy = "Simple"
+	// SessionTagsPolicyCustom adds the tags defined in CustomSessionTags in addition to
+	// the esoNamespace, esoStoreName, and esoStoreKind tags.
+	SessionTagsPolicyCustom SessionTagsPolicy = "Custom"
+)
 
 // AWSProvider configures a store to sync secrets with AWS.
 type AWSProvider struct {
@@ -126,6 +146,21 @@ type AWSProvider struct {
 	// AWS STS assume role transitive session tags. Required when multiple rules are used with the provider
 	// +optional
 	TransitiveTagKeys []string `json:"transitiveTagKeys,omitempty"`
+
+	// SessionTagsPolicy controls whether and how STS session tags are added when assuming roles.
+	// None (default): no tags are added.
+	// Simple: automatically adds esoNamespace (from the ExternalSecret), esoStoreName, and esoStoreKind tags.
+	// Custom: adds esoNamespace, esoStoreName, and esoStoreKind plus any tags defined in CustomSessionTags.
+	// Note: the IAM role must have sts:TagSession permission when using Simple or Custom.
+	// +optional
+	// +kubebuilder:default=None
+	SessionTagsPolicy SessionTagsPolicy `json:"sessionTagsPolicy,omitempty"`
+
+	// CustomSessionTags defines additional STS session tags to include when SessionTagsPolicy is Custom.
+	// These are merged with the automatically injected esoNamespace, esoStoreName, and esoStoreKind tags.
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="!('esoNamespace' in self) && !('esoStoreName' in self) && !('esoStoreKind' in self)",message="customSessionTags cannot contain automatically injected reserved keys: esoNamespace, esoStoreName, esoStoreKind"
+	CustomSessionTags map[string]string `json:"customSessionTags,omitempty"`
 
 	// Prefix adds a prefix to all retrieved values.
 	// +optional

@@ -1,10 +1,16 @@
 ![Doppler External Secrets Provider](../pictures/doppler-provider-header.jpg)
 
-## Doppler SecretOps Platform
+# Doppler SecretOps Platform
 
 Sync secrets from the [Doppler SecretOps Platform](https://www.doppler.com/) to Kubernetes using the External Secrets Operator.
 
 ## Authentication
+
+Doppler supports two authentication methods:
+
+> **NOTE:** When using a `ClusterSecretStore`, be sure to set `namespace` in `secretRef.dopplerToken` (for token auth) or `serviceAccountRef` (for OIDC auth).
+
+### Service Token Authentication
 
 Doppler [Service Tokens](https://docs.doppler.com/docs/service-tokens) are recommended as they restrict access to a single config.
 
@@ -30,7 +36,31 @@ Then to create a generic `SecretStore`:
 {% include 'doppler-generic-secret-store.yaml' %}
 ```
 
-> **NOTE:** In case of a `ClusterSecretStore`, be sure to set `namespace` in `secretRef.dopplerToken`.
+### OIDC Authentication
+
+For OIDC authentication, you'll need to configure a Doppler [Service Account Identity](https://docs.doppler.com/docs/service-account-identities) and create a Kubernetes ServiceAccount.
+
+First, create a Kubernetes ServiceAccount:
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: doppler-oidc-sa
+  namespace: external-secrets
+```
+
+Next, create a Doppler Service Account Identity with:
+
+- **Issuer**: Your cluster's OIDC discovery URL
+- **Audience**: The resource-specific audience for the SecretStore (`secretStore:<namespace>:<storeName>` or `clusterSecretStore:<storeName>`), e.g. `secretStore:external-secrets:doppler-oidc-sa` or `clusterSecretStore:doppler-auth-api`
+- **Subject**: The Kubernetes ServiceAccount (`system:serviceaccount:<serviceAccountNamespace>:<serviceAccountName>`), e.g. `system:serviceaccount:external-secrets:doppler-oidc-sa`
+
+Then configure the SecretStore:
+
+```yaml
+{% include 'doppler-oidc-secret-store.yaml' %}
+```
 
 
 ## Use Cases
@@ -111,15 +141,15 @@ Then an `ExternalSecret` referencing the `SecretStore`:
 
 ![Doppler name transformer](../pictures/doppler-name-transformer.png)
 
-### 6. Download
+## 6. Download
 
 A single `DOPPLER_SECRETS_FILE` key is set where the value is the secrets downloaded in one of the following formats:
 
 - json
 - dotnet-json
 - env
-- env-no-quotes
 - yaml
+- docker
 
 Downloading secrets requires a specifically configured `SecretStore`:
 

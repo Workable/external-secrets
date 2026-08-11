@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -41,18 +41,21 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 var _ = SynchronizedAfterSuite(func() {
 	// noop
 }, func() {
-	_, _, cl := util.NewConfig()
-	By("Deleting any pending generator states")
-	generatorStates := &genv1alpha1.GeneratorStateList{}
-	err := cl.List(GinkgoT().Context(), generatorStates)
-	Expect(err).ToNot(HaveOccurred())
-	for _, generatorState := range generatorStates.Items {
-		err = cl.Delete(GinkgoT().Context(), &generatorState)
+	// The pre-deletion serves only the uninstall, so it is skipped with it.
+	if !addon.SkipGlobalTeardown() {
+		_, _, cl := util.NewConfig()
+		By("Deleting any pending generator states")
+		generatorStates := &genv1alpha1.GeneratorStateList{}
+		err := cl.List(GinkgoT().Context(), generatorStates)
 		Expect(err).ToNot(HaveOccurred())
-	}
+		for _, generatorState := range generatorStates.Items {
+			err = cl.Delete(GinkgoT().Context(), &generatorState)
+			Expect(err).ToNot(HaveOccurred())
+		}
 
-	By("Cleaning up global addons")
-	addon.UninstallGlobalAddons()
+		By("Cleaning up global addons")
+		addon.UninstallGlobalAddons()
+	}
 	if CurrentSpecReport().Failed() {
 		addon.PrintLogs()
 	}

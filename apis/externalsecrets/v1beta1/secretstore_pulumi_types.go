@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import (
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 )
 
+// PulumiProvider defines configuration for the Pulumi provider.
 type PulumiProvider struct {
 	// APIURL is the URL of the Pulumi API.
 	// +kubebuilder:default="https://api.pulumi.com/api/esc"
@@ -41,6 +42,7 @@ type PulumiProvider struct {
 	Environment string `json:"environment"`
 }
 
+// PulumiProviderSecretRef defines a reference to a secret containing credentials for the Pulumi provider.
 type PulumiProviderSecretRef struct {
 	// SecretRef is a reference to a secret containing the Pulumi API token.
 	SecretRef *esmeta.SecretKeySelector `json:"secretRef,omitempty"`

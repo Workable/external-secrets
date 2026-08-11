@@ -1,0 +1,215 @@
+/*
+Copyright © The ESO Authors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package delinea
+
+import (
+	"context"
+	"errors"
+
+	"github.com/DelineaXPM/dsv-sdk-go/v2/vault"
+	kubeClient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
+	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
+	"github.com/external-secrets/external-secrets/runtime/esutils"
+	"github.com/external-secrets/external-secrets/runtime/esutils/resolvers"
+)
+
+var (
+	errEmptyTenant                   = errors.New("tenant must not be empty")
+	errEmptyClientID                 = errors.New("clientID must be set")
+	errEmptyClientSecret             = errors.New("clientSecret must be set")
+	errMissingStore                  = errors.New("missing store specification")
+	errInvalidSpec                   = errors.New("invalid specification for delinea provider")
+	errMissingSecretName             = errors.New("must specify a secret name")
+	errMissingSecretKey              = errors.New("must specify a secret key")
+	errClusterStoreRequiresNamespace = errors.New("when using a ClusterSecretStore, namespaces must be explicitly set")
+)
+
+// Provider implements the External Secrets provider for Delinea DevOps
+// Secrets Vault.
+type Provider struct{}
+
+var _ esv1.Provider = &Provider{}
+
+// Capabilities return the provider supported capabilities (ReadOnly, WriteOnly, ReadWrite).
+func (p *Provider) Capabilities() esv1.SecretStoreCapabilities {
+	return esv1.SecretStoreReadOnly
+}
+
+// NewClient creates a new Delinea DevOps Secrets Vault client.
+func (p *Provider) NewClient(ctx context.Context, store esv1.GenericStore, kube kubeClient.Client, namespace string) (esv1.SecretsClient, error) {
+	cfg, err := getConfig(store)
+	if err != nil {
+		return nil, err
+	}
+
+	if store.GetKind() == esv1.ClusterSecretStoreKind && doesConfigDependOnNamespace(cfg) {
+		// we are not attached to a specific namespace, but some config values are dependent on it
+		return nil, errClusterStoreRequiresNamespace
+	}
+
+	clientID, err := loadConfigSecret(ctx, store.GetKind(), cfg.ClientID, kube, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	clientSecret, err := loadConfigSecret(ctx, store.GetKind(), cfg.ClientSecret, kube, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	dsvClient, err := vault.New(vault.Configuration{
+		Credentials: vault.ClientCredential{
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+		},
+		Tenant:      cfg.Tenant,
+		TLD:         cfg.TLD,
+		URLTemplate: cfg.URLTemplate,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &client{
+		api: dsvClient,
+	}, nil
+}
+
+// loadConfigSecret resolves a Delinea credential from either an inline value or a secret reference.
+func loadConfigSecret(
+	ctx context.Context,
+	storeKind string,
+	ref *esv1.DelineaProviderSecretRef,
+	kube kubeClient.Client,
+	namespace string) (string, error) {
+	if ref.SecretRef == nil {
+		return ref.Value, nil
+	}
+	if err := validateSecretRef(ref); err != nil {
+		return "", err
+	}
+	return resolvers.SecretKeyRef(ctx, kube, storeKind, namespace, ref.SecretRef)
+}
+
+// delineaCredentialRefPolicy returns the validation policy for Delinea credential fields.
+func delineaCredentialRefPolicy(store esv1.GenericStore) esutils.ValueOrRefPolicy[esmeta.SecretKeySelector] {
+	return esutils.ValueOrRefPolicy[esmeta.SecretKeySelector]{
+		Presence:    esutils.RequireValueOrRef,
+		ValidateRef: validateDelineaCredentialSecretRef(store),
+	}
+}
+
+// validateDelineaCredentialSecretRef validates a Delinea credential secret reference against the store scope.
+func validateDelineaCredentialSecretRef(store esv1.GenericStore) func(esmeta.SecretKeySelector) error {
+	return func(ref esmeta.SecretKeySelector) error {
+		if err := esutils.ValidateReferentSecretSelector(store, ref); err != nil {
+			return err
+		}
+		return validateDelineaCredentialSecretRefNameAndKey(ref)
+	}
+}
+
+// validateSecretRef validates a Delinea credential reference independently of a store.
+func validateSecretRef(ref *esv1.DelineaProviderSecretRef) error {
+	return esutils.ValidateValueOrRef(ref.Value, ref.SecretRef, esutils.ValueOrRefPolicy[esmeta.SecretKeySelector]{
+		Presence:    esutils.RequireValueOrRef,
+		ValidateRef: validateDelineaCredentialSecretRefNameAndKey,
+	})
+}
+
+// validateDelineaCredentialSecretRefNameAndKey ensures a Delinea credential secret reference has both name and key.
+func validateDelineaCredentialSecretRefNameAndKey(ref esmeta.SecretKeySelector) error {
+	if ref.Name == "" {
+		return errMissingSecretName
+	}
+	if ref.Key == "" {
+		return errMissingSecretKey
+	}
+	return nil
+}
+
+func doesConfigDependOnNamespace(cfg *esv1.DelineaProvider) bool {
+	if cfg.ClientID.SecretRef != nil && cfg.ClientID.SecretRef.Namespace == nil {
+		return true
+	}
+
+	if cfg.ClientSecret.SecretRef != nil && cfg.ClientSecret.SecretRef.Namespace == nil {
+		return true
+	}
+
+	return false
+}
+
+func getConfig(store esv1.GenericStore) (*esv1.DelineaProvider, error) {
+	if store == nil {
+		return nil, errMissingStore
+	}
+	storeSpec := store.GetSpec()
+
+	if storeSpec == nil || storeSpec.Provider == nil || storeSpec.Provider.Delinea == nil {
+		return nil, errInvalidSpec
+	}
+	cfg := storeSpec.Provider.Delinea
+
+	if cfg.Tenant == "" {
+		return nil, errEmptyTenant
+	}
+
+	if cfg.ClientID == nil {
+		return nil, errEmptyClientID
+	}
+
+	if cfg.ClientSecret == nil {
+		return nil, errEmptyClientSecret
+	}
+
+	if err := esutils.ValidateValueOrRef(cfg.ClientID.Value, cfg.ClientID.SecretRef, delineaCredentialRefPolicy(store)); err != nil {
+		return nil, err
+	}
+
+	if err := esutils.ValidateValueOrRef(cfg.ClientSecret.Value, cfg.ClientSecret.SecretRef, delineaCredentialRefPolicy(store)); err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
+}
+
+// ValidateStore validates the Delinea SecretStore configuration.
+func (p *Provider) ValidateStore(store esv1.GenericStore) (admission.Warnings, error) {
+	_, err := getConfig(store)
+	return nil, err
+}
+
+// NewProvider creates a new Provider instance.
+func NewProvider() esv1.Provider {
+	return &Provider{}
+}
+
+// ProviderSpec returns the provider specification for registration.
+func ProviderSpec() *esv1.SecretStoreProvider {
+	return &esv1.SecretStoreProvider{
+		Delinea: &esv1.DelineaProvider{},
+	}
+}
+
+// MaintenanceStatus returns the maintenance status of the provider.
+func MaintenanceStatus() esv1.MaintenanceStatus {
+	return esv1.MaintenanceStatusMaintained
+}

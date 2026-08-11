@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,6 +26,11 @@ type AkeylessProvider struct {
 	// Akeyless GW API Url from which the secrets to be fetched from.
 	AkeylessGWApiURL *string `json:"akeylessGWApiURL"`
 
+	// IgnoreCache bypasses the Gateway cache for secret reads when true.
+	// Only relevant when akeylessGWApiURL points to an Akeyless Gateway.
+	// +optional
+	IgnoreCache *bool `json:"ignoreCache,omitempty"`
+
 	// Auth configures how the operator authenticates with Akeyless.
 	Auth *AkeylessAuth `json:"authSecretRef"`
 
@@ -40,6 +45,7 @@ type AkeylessProvider struct {
 	CAProvider *CAProvider `json:"caProvider,omitempty"`
 }
 
+// AkeylessAuth configures how the operator authenticates with Akeyless.
 type AkeylessAuth struct {
 
 	// Reference to a Secret that contains the details
@@ -51,9 +57,17 @@ type AkeylessAuth struct {
 	// token stored in the named Secret resource.
 	// +optional
 	KubernetesAuth *AkeylessKubernetesAuth `json:"kubernetesAuth,omitempty"`
+
+	// ServiceAccountRef specifies a Kubernetes ServiceAccount used for azure_ad
+	// authentication on AKS Workload Identity. The operator obtains a federated
+	// identity token from this ServiceAccount via the TokenRequest API instead
+	// of using the ESO controller pod identity. Ignored for other access types.
+	// +optional
+	ServiceAccountRef *esmeta.ServiceAccountSelector `json:"serviceAccountRef,omitempty"`
 }
 
-// AkeylessAuthSecretRef
+// AkeylessAuthSecretRef references a Secret that contains the details
+// to authenticate with Akeyless.
 // AKEYLESS_ACCESS_TYPE_PARAM: AZURE_OBJ_ID OR GCP_AUDIENCE OR ACCESS_KEY OR KUB_CONFIG_NAME.
 type AkeylessAuthSecretRef struct {
 	// The SecretAccessID is used for authentication
@@ -62,7 +76,8 @@ type AkeylessAuthSecretRef struct {
 	AccessTypeParam esmeta.SecretKeySelector `json:"accessTypeParam,omitempty"`
 }
 
-// Authenticate with Kubernetes ServiceAccount token stored.
+// AkeylessKubernetesAuth configures Kubernetes authentication with Akeyless.
+// It authenticates with Kubernetes ServiceAccount token stored.
 type AkeylessKubernetesAuth struct {
 
 	// the Akeyless Kubernetes auth-method access-id

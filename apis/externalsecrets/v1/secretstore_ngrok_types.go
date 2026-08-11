@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -36,6 +36,7 @@ type NgrokProvider struct {
 	Vault NgrokVault `json:"vault"`
 }
 
+// NgrokAuth configures the authentication method for the ngrok provider.
 // +kubebuilder:validation:MinProperties=1
 // +kubebuilder:validation:MaxProperties=1
 type NgrokAuth struct {
@@ -44,12 +45,14 @@ type NgrokAuth struct {
 	APIKey *NgrokProviderSecretRef `json:"apiKey,omitempty"`
 }
 
+// NgrokVault configures the ngrok vault to sync secrets with.
 type NgrokVault struct {
 	// Name is the name of the ngrok vault to sync secrets with.
 	// +kubebuilder:validation:Required
 	Name string `json:"name"`
 }
 
+// NgrokProviderSecretRef contains the secret reference for the ngrok provider.
 type NgrokProviderSecretRef struct {
 	// SecretRef is a reference to a secret containing the ngrok API key.
 	// +optional

@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ type FakeProvider struct {
 	ValidationResult *ValidationResult  `json:"validationResult,omitempty"`
 }
 
+// FakeProviderData defines a key-value pair with optional version for the fake provider.
 type FakeProviderData struct {
 	Key     string `json:"key"`
 	Value   string `json:"value"`

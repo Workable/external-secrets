@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import (
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 )
 
+// UniversalAuthCredentials represents the client credentials for universal authentication.
 type UniversalAuthCredentials struct {
 	// +kubebuilder:validation:Required
 	ClientID esmeta.SecretKeySelector `json:"clientId"`
@@ -27,6 +28,7 @@ type UniversalAuthCredentials struct {
 	ClientSecret esmeta.SecretKeySelector `json:"clientSecret"`
 }
 
+// AzureAuthCredentials represents the credentials for Azure authentication.
 type AzureAuthCredentials struct {
 	// +kubebuilder:validation:Required
 	IdentityID esmeta.SecretKeySelector `json:"identityId"`
@@ -34,11 +36,13 @@ type AzureAuthCredentials struct {
 	Resource esmeta.SecretKeySelector `json:"resource"`
 }
 
-type GcpIdTokenAuthCredentials struct {
+// GcpIDTokenAuthCredentials represents the credentials for GCP ID token authentication.
+type GcpIDTokenAuthCredentials struct {
 	// +kubebuilder:validation:Required
 	IdentityID esmeta.SecretKeySelector `json:"identityId"`
 }
 
+// GcpIamAuthCredentials represents the credentials for GCP IAM authentication.
 type GcpIamAuthCredentials struct {
 	// +kubebuilder:validation:Required
 	IdentityID esmeta.SecretKeySelector `json:"identityId"`
@@ -46,6 +50,7 @@ type GcpIamAuthCredentials struct {
 	ServiceAccountKeyFilePath esmeta.SecretKeySelector `json:"serviceAccountKeyFilePath"`
 }
 
+// JwtAuthCredentials represents the credentials for JWT authentication.
 type JwtAuthCredentials struct {
 	// +kubebuilder:validation:Required
 	IdentityID esmeta.SecretKeySelector `json:"identityId"`
@@ -53,6 +58,7 @@ type JwtAuthCredentials struct {
 	JWT esmeta.SecretKeySelector `json:"jwt"`
 }
 
+// LdapAuthCredentials represents the credentials for LDAP authentication.
 type LdapAuthCredentials struct {
 	// +kubebuilder:validation:Required
 	IdentityID esmeta.SecretKeySelector `json:"identityId"`
@@ -62,6 +68,7 @@ type LdapAuthCredentials struct {
 	LDAPUsername esmeta.SecretKeySelector `json:"ldapUsername"`
 }
 
+// OciAuthCredentials represents the credentials for OCI authentication.
 type OciAuthCredentials struct {
 	// +kubebuilder:validation:Required
 	IdentityID esmeta.SecretKeySelector `json:"identityId"`
@@ -79,6 +86,7 @@ type OciAuthCredentials struct {
 	Region esmeta.SecretKeySelector `json:"region"`
 }
 
+// KubernetesAuthCredentials represents the credentials for Kubernetes authentication.
 type KubernetesAuthCredentials struct {
 	// +kubebuilder:validation:Required
 	IdentityID esmeta.SecretKeySelector `json:"identityId"`
@@ -86,23 +94,26 @@ type KubernetesAuthCredentials struct {
 	ServiceAccountTokenPath esmeta.SecretKeySelector `json:"serviceAccountTokenPath"`
 }
 
+// AwsAuthCredentials represents the credentials for AWS authentication.
 type AwsAuthCredentials struct {
 	// +kubebuilder:validation:Required
 	IdentityID esmeta.SecretKeySelector `json:"identityId"`
 }
 
+// TokenAuthCredentials represents the credentials for access token-based authentication.
 type TokenAuthCredentials struct {
 	// +kubebuilder:validation:Required
 	AccessToken esmeta.SecretKeySelector `json:"accessToken"`
 }
 
+// InfisicalAuth specifies the authentication configuration for Infisical.
 type InfisicalAuth struct {
 	// +optional
 	UniversalAuthCredentials *UniversalAuthCredentials `json:"universalAuthCredentials,omitempty"`
 	// +optional
 	AzureAuthCredentials *AzureAuthCredentials `json:"azureAuthCredentials,omitempty"`
 	// +optional
-	GcpIdTokenAuthCredentials *GcpIdTokenAuthCredentials `json:"gcpIdTokenAuthCredentials,omitempty"`
+	GcpIDTokenAuthCredentials *GcpIDTokenAuthCredentials `json:"gcpIdTokenAuthCredentials,omitempty"`
 	// +optional
 	GcpIamAuthCredentials *GcpIamAuthCredentials `json:"gcpIamAuthCredentials,omitempty"`
 	// +optional
@@ -119,6 +130,7 @@ type InfisicalAuth struct {
 	TokenAuthCredentials *TokenAuthCredentials `json:"tokenAuthCredentials,omitempty"`
 }
 
+// MachineIdentityScopeInWorkspace defines the scope for machine identity within a workspace.
 type MachineIdentityScopeInWorkspace struct {
 	// SecretsPath specifies the path to the secrets within the workspace. Defaults to "/" if not provided.
 	// +kubebuilder:default="/"
@@ -134,6 +146,10 @@ type MachineIdentityScopeInWorkspace struct {
 	// ProjectSlug is the required slug identifier for the project.
 	// +kubebuilder:validation:Required
 	ProjectSlug string `json:"projectSlug"`
+	// OrganizationSlug is the optional slug that identifies the organization that will be used
+	// during authentication. Useful for sub-organization setups
+	// +kubebuilder:validation:Optional
+	OrganizationSlug string `json:"organizationSlug"`
 	// ExpandSecretReferences indicates whether secret references should be expanded. Defaults to true if not provided.
 	// +kubebuilder:default=true
 	// +optional
@@ -152,4 +168,15 @@ type InfisicalProvider struct {
 	// +kubebuilder:default="https://app.infisical.com/api"
 	// +optional
 	HostAPI string `json:"hostAPI,omitempty"`
+
+	// CABundle is a PEM-encoded CA certificate bundle used to validate
+	// the Infisical server's TLS certificate. Mutually exclusive with CAProvider.
+	// +optional
+	CABundle []byte `json:"caBundle,omitempty"`
+
+	// CAProvider is a reference to a Secret or ConfigMap that contains a CA certificate.
+	// The certificate is used to validate the Infisical server's TLS certificate.
+	// Mutually exclusive with CABundle.
+	// +optional
+	CAProvider *CAProvider `json:"caProvider,omitempty"`
 }

@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -35,20 +35,29 @@ var (
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
 	SchemeBuilder = &scheme.Builder{GroupVersion: SchemeGroupVersion}
-	AddToScheme   = SchemeBuilder.AddToScheme
+	// AddToScheme adds the types in this group-version to the given scheme.
+	AddToScheme = SchemeBuilder.AddToScheme
 )
 
 var (
-	PushSecretKind             = reflect.TypeOf(PushSecret{}).Name()
-	PushSecretGroupKind        = schema.GroupKind{Group: Group, Kind: PushSecretKind}.String()
-	PushSecretKindAPIVersion   = PushSecretKind + "." + SchemeGroupVersion.String()
+	// PushSecretKind is the kind name used for PushSecret resources.
+	PushSecretKind = reflect.TypeFor[PushSecret]().Name()
+	// PushSecretGroupKind is the group/kind used for PushSecret resources.
+	PushSecretGroupKind = schema.GroupKind{Group: Group, Kind: PushSecretKind}.String()
+	// PushSecretKindAPIVersion is the kind/apiVersion used for PushSecret resources.
+	PushSecretKindAPIVersion = PushSecretKind + "." + SchemeGroupVersion.String()
+	// PushSecretGroupVersionKind is the GroupVersionKind for PushSecret resources.
 	PushSecretGroupVersionKind = SchemeGroupVersion.WithKind(PushSecretKind)
 )
 
 var (
-	ClusterPushSecretKind             = reflect.TypeOf(ClusterPushSecret{}).Name()
-	ClusterPushSecretGroupKind        = schema.GroupKind{Group: Group, Kind: ClusterPushSecretKind}.String()
-	ClusterPushSecretKindAPIVersion   = ClusterPushSecretKind + "." + SchemeGroupVersion.String()
+	// ClusterPushSecretKind is the kind name used for ClusterPushSecret resources.
+	ClusterPushSecretKind = reflect.TypeFor[ClusterPushSecret]().Name()
+	// ClusterPushSecretGroupKind is the group/kind used for ClusterPushSecret resources.
+	ClusterPushSecretGroupKind = schema.GroupKind{Group: Group, Kind: ClusterPushSecretKind}.String()
+	// ClusterPushSecretKindAPIVersion is the kind/apiVersion used for ClusterPushSecret resources.
+	ClusterPushSecretKindAPIVersion = ClusterPushSecretKind + "." + SchemeGroupVersion.String()
+	// ClusterPushSecretGroupVersionKind is the GroupVersionKind for ClusterPushSecret resources.
 	ClusterPushSecretGroupVersionKind = SchemeGroupVersion.WithKind(ClusterPushSecretKind)
 )
 

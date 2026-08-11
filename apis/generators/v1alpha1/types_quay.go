@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import (
 	esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 )
 
+// QuayAccessTokenSpec defines the desired state to generate a Quay access token.
 type QuayAccessTokenSpec struct {
 	// URL configures the Quay instance URL. Defaults to quay.io.
 	URL string `json:"url,omitempty"`

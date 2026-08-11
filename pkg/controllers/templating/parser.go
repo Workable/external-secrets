@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
-	"github.com/external-secrets/external-secrets/pkg/template"
+	"github.com/external-secrets/external-secrets/runtime/template"
 )
 
 const fieldOwnerTemplate = "externalsecrets.external-secrets.io/%v"
@@ -83,7 +83,7 @@ func (p *Parser) MergeConfigMap(ctx context.Context, namespace string, tpl esv1.
 		case esv1.TemplateScopeKeysAndValues:
 			out[val] = []byte(val)
 		}
-		err := p.Exec(out, p.DataMap, k.TemplateAs, tpl.Target, p.TargetSecret)
+		err := p.Exec(out, p.DataMap, k.TemplateAs, tpl.Target, p.TargetSecret, tpl.ValuesDecodingStrategy)
 		if err != nil {
 			return err
 		}
@@ -122,7 +122,7 @@ func (p *Parser) MergeSecret(ctx context.Context, namespace string, tpl esv1.Tem
 		case esv1.TemplateScopeKeysAndValues:
 			out[string(val)] = val
 		}
-		err := p.Exec(out, p.DataMap, k.TemplateAs, tpl.Target, p.TargetSecret)
+		err := p.Exec(out, p.DataMap, k.TemplateAs, tpl.Target, p.TargetSecret, tpl.ValuesDecodingStrategy)
 		if err != nil {
 			return err
 		}
@@ -137,7 +137,7 @@ func (p *Parser) MergeLiteral(_ context.Context, tpl esv1.TemplateFrom) error {
 	}
 	out := make(map[string][]byte)
 	out[*tpl.Literal] = []byte(*tpl.Literal)
-	return p.Exec(out, p.DataMap, esv1.TemplateScopeKeysAndValues, tpl.Target, p.TargetSecret)
+	return p.Exec(out, p.DataMap, esv1.TemplateScopeKeysAndValues, tpl.Target, p.TargetSecret, tpl.ValuesDecodingStrategy)
 }
 
 // MergeTemplateFrom merges all templates specified in the ExternalSecretTemplate's TemplateFrom field.
@@ -164,12 +164,12 @@ func (p *Parser) MergeTemplateFrom(ctx context.Context, namespace string, templa
 }
 
 // MergeMap merges the given map of templates into the target secret.
-func (p *Parser) MergeMap(tplMap map[string]string, target esv1.TemplateTarget) error {
+func (p *Parser) MergeMap(tplMap map[string]string, target string) error {
 	byteMap := make(map[string][]byte)
 	for k, v := range tplMap {
 		byteMap[k] = []byte(v)
 	}
-	err := p.Exec(byteMap, p.DataMap, esv1.TemplateScopeValues, target, p.TargetSecret)
+	err := p.Exec(byteMap, p.DataMap, esv1.TemplateScopeValues, target, p.TargetSecret, esv1.ExternalSecretDecodeNone)
 	if err != nil {
 		return fmt.Errorf(errExecTpl, err)
 	}

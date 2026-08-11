@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -201,6 +201,45 @@ func TestManagerGet(t *testing.T) {
 				assert.False(t, ok)
 				assert.True(t, clientB.closeCalled)
 				assert.Nil(t, v)
+			},
+		},
+		{
+			name:    "sourceRef overrides storeRef if both configured",
+			wantErr: false,
+			fields: fields{
+				client: fakeclient.NewClientBuilder().
+					WithScheme(scheme).
+					WithObjects(defaultStore, otherStore).
+					Build(),
+				clientMap: make(map[clientKey]*clientVal),
+			},
+			args: args{
+				storeRef: esv1.SecretStoreRef{
+					Name: defaultStore.Name,
+					Kind: esv1.SecretStoreKind,
+				},
+				sourceRef: &esv1.StoreGeneratorSourceRef{
+					SecretStoreRef: &esv1.SecretStoreRef{
+						Name: otherStore.Name,
+						Kind: esv1.SecretStoreKind,
+					},
+				},
+				namespace: testNamespace,
+			},
+			clientConstructor: func(_ context.Context, store esv1.GenericStore, _ client.Client, _ string) (esv1.SecretsClient, error) {
+				// Assert that NewClient receives the *referenced* store, not the primary
+				assert.Equal(t, otherStore.Name, store.GetName(),
+					"NewClient should receive the sourceRef store, not the primary storeRef")
+				assert.Equal(t, esv1.SecretStoreKind, store.GetKind())
+				return clientB, nil
+			},
+			verify: func(sc esv1.SecretsClient) {
+				assert.NotNil(t, sc)
+				assert.Same(t, sc, clientB)
+			},
+			afterClose: func() {
+				_, ok := mgr.clientMap[provKey]
+				assert.False(t, ok)
 			},
 		},
 		{

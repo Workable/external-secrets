@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,6 +18,8 @@ package v1
 
 import esmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 
+// BeyondTrustProviderSecretRef references a value that can be specified directly or via a secret
+// for a BeyondTrustProvider.
 type BeyondTrustProviderSecretRef struct {
 
 	// Value can be specified directly to set a value without using a secret.
@@ -29,7 +31,7 @@ type BeyondTrustProviderSecretRef struct {
 	SecretRef *esmeta.SecretKeySelector `json:"secretRef,omitempty"`
 }
 
-// Configures a store to sync secrets using BeyondTrust Password Safe.
+// BeyondtrustAuth provides different ways to authenticate to a BeyondtrustProvider server.
 type BeyondtrustAuth struct {
 	// APIKey If not provided then ClientID/ClientSecret become required.
 	APIKey *BeyondTrustProviderSecretRef `json:"apiKey,omitempty"`
@@ -43,7 +45,7 @@ type BeyondtrustAuth struct {
 	CertificateKey *BeyondTrustProviderSecretRef `json:"certificateKey,omitempty"`
 }
 
-// Configures a store to sync secrets using BeyondTrust Password Safe.
+// BeyondtrustServer configures a store to sync secrets using BeyondTrust Password Safe.
 type BeyondtrustServer struct {
 	// +required - BeyondTrust Password Safe API URL. https://example.com:443/beyondtrust/api/public/V3.
 	APIURL string `json:"apiUrl"`
@@ -53,12 +55,17 @@ type BeyondtrustServer struct {
 	RetrievalType string `json:"retrievalType,omitempty"`
 	// A character that separates the folder names.
 	Separator string `json:"separator,omitempty"`
+	// When true, the response includes the decrypted password. When false, the password field is omitted. This option only applies to the SECRET retrieval type. Default: true.
+	// +optional
+	// +kubebuilder:default=true
+	Decrypt bool `json:"decrypt,omitempty"`
 	// +required - Indicates whether to verify the certificate authority on the Secrets Safe instance. Warning - false is insecure, instructs the BT provider not to verify the certificate authority.
 	VerifyCA bool `json:"verifyCA"`
 	// Timeout specifies a time limit for requests made by this Client. The timeout includes connection time, any redirects, and reading the response body. Defaults to 45 seconds.
 	ClientTimeOutSeconds int `json:"clientTimeOutSeconds,omitempty"`
 }
 
+// BeyondtrustProvider provides access to a BeyondTrust secrets provider.
 type BeyondtrustProvider struct {
 
 	// Auth configures how the operator authenticates with Beyondtrust.

@@ -13,9 +13,10 @@ way users of the `SecretStore` can only access the secrets necessary.
 ```
 **NOTE:** In case of a `ClusterSecretStore`, Be sure to provide `namespace` in `accessKeyIDSecretRef` and `secretAccessKeySecretRef`  with the namespaces where the secrets reside.
 
-**NOTE:** When using `dataFrom` without a `path` defined, the provider will fall back to using `ListSecrets`. `ListSecrets`
-then proceeds to fetch each individual secret in turn. To use `BatchGetSecretValue` and avoid excessive API calls define
-a `path` prefix or use `Tags` filter.
+**NOTE:** `dataFrom` uses the more efficient `BatchGetSecretValue` API when you define a `path`
+prefix, or when you filter by `Tags` only (without a `name`). When you search by `name` without a
+`path`, the provider falls back to `ListSecrets` and then fetches each matching secret
+individually, which is more costly. Define a `path` prefix to reduce the number of API calls.
 
 ### IAM Policy
 
@@ -62,13 +63,21 @@ If you're planning to use `PushSecret`, ensure you also have the following permi
     "secretsmanager:CreateSecret",
     "secretsmanager:PutSecretValue",
     "secretsmanager:TagResource",
-    "secretsmanager:DeleteSecret"
+    "secretsmanager:DeleteSecret",
+    "secretsmanager:GetResourcePolicy",
+    "secretsmanager:PutResourcePolicy",
+    "secretsmanager:DeleteResourcePolicy",
+    "secretsmanager:ReplicateSecretToRegions",
+    "secretsmanager:RemoveRegionsFromReplication"
   ],
   "Resource": [
     "arn:aws:secretsmanager:us-west-2:111122223333:secret:dev-*"
   ]
 }
 ```
+
+**Note:** The resource policy permissions (`GetResourcePolicy`, `PutResourcePolicy`, `DeleteResourcePolicy`) are only required if you're using the `resourcePolicy` metadata option to manage resource-based policies on secrets.
+**Note:** The replication permissions (`ReplicateSecretToRegions`, `RemoveRegionsFromReplication`) are only required if you're using the `replicationLocations` metadata option to manage secret replication across multiple regions.
 
 Here's a more restrictive version of the IAM policy:
 
@@ -81,7 +90,12 @@ Here's a more restrictive version of the IAM policy:
       "Action": [
         "secretsmanager:CreateSecret",
         "secretsmanager:PutSecretValue",
-        "secretsmanager:TagResource"
+        "secretsmanager:TagResource",
+        "secretsmanager:GetResourcePolicy",
+        "secretsmanager:PutResourcePolicy",
+        "secretsmanager:DeleteResourcePolicy",
+        "secretsmanager:ReplicateSecretToRegions",
+        "secretsmanager:RemoveRegionsFromReplication"
       ],
       "Resource": [
         "arn:aws:secretsmanager:us-west-2:111122223333:secret:dev-*"
@@ -118,10 +132,13 @@ Additional settings can be set at the `SecretStore` level to control the behavio
 #### Additional Metadata for PushSecret
 
 Optionally, it is possible to configure additional options for the parameter. These are as follows:
+
 - kmsKeyID
 - secretPushFormat
 - description
 - tags
+- resourcePolicy
+- replicationLocations
 
 To control this behavior set the following provider metadata:
 
@@ -133,6 +150,111 @@ To control this behavior set the following provider metadata:
 - `kmsKeyID` takes a KMS Key `$ID` or `$ARN` (in case a key source is created in another account) as a string, where `alias/aws/secretsmanager` is the _default_.
 - `description` Description of the secret.
 - `tags` Key-value map of user-defined tags that are attached to the secret.
+- `replicationLocations` takes a list of valid AWS region names where the secret should be replicated.
+
+**Note:** ESO treats the PushSecret as the **source of truth** for tags, resource policy, and replication locations. When any of these resources are specified in `metadata`, they will be added or updated, and resources NOT specified but existing will be removed from AWS. This synchronization happens on every reconciliation, even when the secret value hasn't changed.
+
+- `resourcePolicy` Attach a resource-based policy to the secret for cross-account access or advanced access control.
+  - `blockPublicPolicy` (optional) - Set to `true` to validate that the policy doesn't grant public access before applying. Defaults to AWS behavior.
+  - `policySourceRef` (required) - Reference to a ConfigMap or Secret containing the policy JSON.
+    - `kind` - Either `ConfigMap` or `Secret`.
+    - `name` - Name of the ConfigMap or Secret.
+    - `key` - Key within the ConfigMap/Secret data that contains the policy JSON.
+
+
+##### KMS Key
+
+The `kmsKeyID` field controls the KMS key used for encrypting/ decrypting the secret.
+
+- If `kmsKeyID` is provided, ESO always uses that value for the primary secret.
+- If `kmsKeyID` is not provided, ESO falls back to AWS’s default Secrets Manager key: `alias/aws/secretsmanager`.
+- ESO does not currently support specifying different `kmsKeyID` values per replica region. A single `kmsKeyID` value is applied uniformly across the primary secret and all configured replication regions.
+
+##### Resource Policy Example
+
+To attach a resource policy to a secret for cross-account access:
+
+```yaml
+apiVersion: external-secrets.io/v1alpha1
+kind: PushSecret
+metadata:
+  name: pushsecret-example
+  namespace: default
+spec:
+  refreshInterval: 10s
+  secretStoreRefs:
+    - name: aws-secretsmanager
+      kind: SecretStore
+  selector:
+    secret:
+      name: pokedex-credentials
+  data:
+    - match:
+        secretKey: my-secret-key
+        remoteRef:
+          remoteKey: my-remote-secret
+          property: password
+      metadata:
+        resourcePolicy:
+          blockPublicPolicy: true
+          policySourceRef:
+            kind: ConfigMap
+            name: my-secret-resource-policy
+            key: policy.json
+        kmsKeyID: bb123123-b2b0-4f60-ac3a-44a13f0e6b6c
+        secretPushFormat: string
+        description: "Cross-account accessible secret"
+        tags:
+          team: platform-engineering
+```
+
+The ConfigMap should contain the policy JSON:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-secret-resource-policy
+  namespace: default
+data:
+  policy.json: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Principal": {
+            "AWS": "arn:aws:iam::123456789012:root"
+          },
+          "Action": "secretsmanager:GetSecretValue",
+          "Resource": "*"
+        }
+      ]
+    }
+```
+
+**Note:** The resource policy is synchronized on every reconciliation, even when the secret value hasn't changed. If the `resourcePolicy` field is removed from metadata, the existing policy will be deleted from the secret.
+
+##### Location Replication
+
+When this field is set, _ESO_ manages replication as part of the PushSecret reconciliation loop and treats the list as the desired state:
+
+- Regions present in `replicationLocations` but not yet configured in AWS will be added.
+- Regions already configured in AWS but not listed in `replicationLocations` will be removed.
+- If `replicationLocations` is omitted entirely, ESO does not manage replication for that secret.
+- Invalid/unsupported region values or missing permissions will cause the AWS replication call to fail.
+
+**Note**: Replicas do not support per-region KMS key selection. If you configure replication, all replica regions will use the same `kmsKeyID` value defined in the main metadata block, or `alias/aws/secretsmanager` when no key is specified.
+
+**Note**: The KMS key **must be available** in the replication region, usually via KMS key replication.
+
+###### Location Replication Example
+
+You can specify a list of locations for your secrets to be replicated by setting the `replicationLocations` field.
+
+``` yaml
+{% include 'aws-sm-push-secret-with-replication.yaml' %}
+```
 
 ### JSON Secret Values
 
@@ -170,7 +292,7 @@ kind: ExternalSecret
 metadata:
   name: versioned-api-key
 spec:
-  refreshInterval: 1h
+  refreshInterval: 1h0m0s
   secretStoreRef:
     name: aws-secretsmanager
     kind: SecretStore
@@ -196,7 +318,7 @@ kind: ExternalSecret
 metadata:
   name: versioned-api-key
 spec:
-  refreshInterval: 1h
+  refreshInterval: 1h0m0s
   secretStoreRef:
     name: aws-secretsmanager
     kind: SecretStore
@@ -210,4 +332,6 @@ spec:
       version: "uuid/123e4567-e89b-12d3-a456-426614174000"
 ```
 
---8<-- "snippets/provider-aws-access.md"
+## Authentication
+
+See [AWS Authentication](aws-access.md) for all supported methods: controller pod identity, IRSA, static credentials, session tokens, assuming roles, session tags, and remote key prefixes.

@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -41,23 +41,28 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 var _ = SynchronizedAfterSuite(func() {
 	// noop
 }, func() {
-	cfg := &addon.Config{}
-	cfg.KubeConfig, cfg.KubeClientSet, cfg.CRClient = util.NewConfig()
-	By("Deleting any pending generator states")
-	generatorStates := &genv1alpha1.GeneratorStateList{}
-	err := cfg.CRClient.List(GinkgoT().Context(), generatorStates)
-	Expect(err).ToNot(HaveOccurred())
-	for _, generatorState := range generatorStates.Items {
-		err = cfg.CRClient.Delete(GinkgoT().Context(), &generatorState)
+	// uninstallFlux is gated too: on its own it deletes the flux-system namespace
+	// while helm-controller is still needed to clear the HelmRelease finalizer
+	// that UninstallGlobalAddons clears first, and kubectl waits 168h on that.
+	if !addon.SkipGlobalTeardown() {
+		cfg := &addon.Config{}
+		cfg.KubeConfig, cfg.KubeClientSet, cfg.CRClient = util.NewConfig()
+		By("Deleting any pending generator states")
+		generatorStates := &genv1alpha1.GeneratorStateList{}
+		err := cfg.CRClient.List(GinkgoT().Context(), generatorStates)
 		Expect(err).ToNot(HaveOccurred())
-	}
+		for _, generatorState := range generatorStates.Items {
+			err = cfg.CRClient.Delete(GinkgoT().Context(), &generatorState)
+			Expect(err).ToNot(HaveOccurred())
+		}
 
-	By("Cleaning up global addons")
-	addon.UninstallGlobalAddons()
+		By("Cleaning up global addons")
+		addon.UninstallGlobalAddons()
+		uninstallFlux()
+	}
 	if CurrentSpecReport().Failed() {
 		addon.PrintLogs()
 	}
-	uninstallFlux()
 })
 
 func TestE2E(t *testing.T) {

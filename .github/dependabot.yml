@@ -6,27 +6,60 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      codeql:
+        patterns:
+          - "github/codeql-action/*"
 
   - package-ecosystem: "docker"
     target-branch: "workable_main"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 10
 
   - package-ecosystem: docker
     target-branch: "workable_main"
     directory: /e2e
     schedule:
       interval: weekly
+    open-pull-requests-limit: 10
 
   - package-ecosystem: docker
     target-branch: "workable_main"
     directory: /hack/api-docs
     schedule:
       interval: weekly
+    open-pull-requests-limit: 10
 
   - package-ecosystem: pip
     target-branch: "workable_main"
     directory: /hack/api-docs
     schedule:
       interval: weekly
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: gomod
+    directory: /hack/tools
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: gomod
+    directory: /hack/tools/golangci-lint
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: gomod
+    directory: /hack/tools/gen-crd-api-reference-docs
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10

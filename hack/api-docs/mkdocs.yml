@@ -5,6 +5,9 @@ site_dir: ../../site
 docs_dir: ../../docs
 edit_uri: ./edit/main/docs/
 remote_branch: gh-pages
+watch:
+  - ../../docs
+  - ../../overrides
 theme:
   name: material
   palette:
@@ -75,12 +78,15 @@ nav:
           - Cloudsmith: api/generator/cloudsmith.md
           - Cluster Generator: api/generator/cluster.md
           - Google Container Registry: api/generator/gcr.md
+          - Grafana: api/generator/grafana.md
           - Quay: api/generator/quay.md
           - Vault Dynamic Secret: api/generator/vault.md
+          - BeyondTrust Workload Credentials: api/generator/beyondtrustworkloadcredentials.md
           - Password: api/generator/password.md
           - Fake: api/generator/fake.md
           - Webhook: api/generator/webhook.md
           - Github: api/generator/github.md
+          - Gitlab: api/generator/gitlab.md
           - UUID: api/generator/uuid.md
           - MFA: api/generator/mfa.md
           - SSHKey: api/generator/sshkey.md
@@ -102,6 +108,7 @@ nav:
           - "Lifecycle: ownership & deletion": guides/ownership-deletion-policy.md
           - Decoding Strategies: guides/decoding-strategy.md
           - Controller Classes: guides/controller-class.md
+      - Targeting Custom Resources: guides/targeting-custom-resources.md
       - Generators: guides/generator.md
       - Push Secrets: guides/pushsecrets.md
       - Operations:
@@ -116,24 +123,28 @@ nav:
   - Provider:
       - AWS Secrets Manager: provider/aws-secrets-manager.md
       - AWS Parameter Store: provider/aws-parameter-store.md
+      - AWS Certificate Manager: provider/aws-certificate-manager.md
+      - AWS Access: provider/aws-access.md
       - Azure Key Vault: provider/azure-key-vault.md
+      - Barbican: provider/barbican.md
       - BeyondTrust: provider/beyondtrust.md
+      - BeyondTrust Workload Credentials: provider/beyondtrustworkloadcredentials.md
       - Bitwarden Secrets Manager: provider/bitwarden-secrets-manager.md
       - Chef: provider/chef.md
       - Cloud.ru Secret Manager: provider/cloudru.md
       - CyberArk Conjur: provider/conjur.md
-      - Device42: provider/device42.md
       - Google Cloud Secret Manager: provider/google-secrets-manager.md
       - HashiCorp Vault: provider/hashicorp-vault.md
       - Kubernetes: provider/kubernetes.md
+      - Kubernetes CRD: provider/crd.md
       - IBM Secrets Manager: provider/ibm-secrets-manager.md
       - Akeyless: provider/akeyless.md
       - Yandex Certificate Manager: provider/yandex-certificate-manager.md
       - Yandex Lockbox: provider/yandex-lockbox.md
-      - Alibaba Cloud: provider/alibaba.md
       - GitLab Variables: provider/gitlab-variables.md
       - Github Actions Secrets: provider/github.md
       - Oracle Vault: provider/oracle-vault.md
+      - OVHcloud: provider/ovhcloud.md
       - 1Password Connect Server: provider/1password-automation.md
       - 1Password SDK: provider/1password-sdk.md
       - Webhook: provider/webhook.md
@@ -155,6 +166,8 @@ nav:
       - OpenBao: provider/openbao.md
       - Volcengine: provider/volcengine.md
       - ngrok: provider/ngrok.md
+      - Devolutions Server: provider/devolutions-server.md
+      - Nebius MysteryBox: provider/nebius-mysterybox.md
   - Examples:
       - FluxCD: examples/gitops-using-fluxcd.md
       - Anchore Engine: examples/anchore-engine-credentials.md
@@ -169,6 +182,7 @@ nav:
           - Community meetings calendar: contributing/calendar.md
           - Roadmap: contributing/roadmap.md
           - Burnout Prevention: contributing/burnout-mitigation.md
+          - LLM Policy: contributing/llm-policy.md
       - External Resources:
           - Talks: eso-talks.md
           - Demos: eso-demos.md

@@ -100,6 +100,17 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].args[7]
           value: "--healthz-addr=:8082"
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].name
+          value: ready
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].protocol
+          value: TCP
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].containerPort
+          value: 8082
+      - notExists:
+          path: spec.template.spec.containers[0].ports[2]
   - it: should override metrics port
     set:
       certController.metrics.listen.port: 8888
@@ -217,7 +228,7 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].args
           content: "--enable-http2"
-  - it: should have startup Probe if enabled
+  - it: should have startup Probe on the readiness port when enabled
     set:
       certController.startupProbe.enabled: true
     templates:
@@ -228,14 +239,21 @@ tests:
           value:
             httpGet:
               path: /readyz
-              port: 8081
-            initialDelaySeconds: 20
-            periodSeconds: 5
-  - it: should override the startup Probe port
+              port: ready
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 30
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].name
+          value: ready
+      - notExists:
+          path: spec.template.spec.containers[0].ports[2]
+  - it: should override the startup Probe timing
     set:
       certController.startupProbe.enabled: true
-      certController.startupProbe.useReadinessProbePort: false
-      certController.startupProbe.port: "8083"
+      certController.startupProbe.initialDelaySeconds: 5
+      certController.startupProbe.periodSeconds: 15
+      certController.startupProbe.failureThreshold: 40
     templates:
       - cert-controller-deployment.yaml
     asserts:
@@ -243,7 +261,137 @@ tests:
           path: spec.template.spec.containers[0].startupProbe
           value:
             httpGet:
-              port: 8083
               path: /readyz
-            initialDelaySeconds: 20
-            periodSeconds: 5
+              port: ready
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            failureThreshold: 40
+  - it: should default to hostUsers absent
+    set:
+      certController.create: true
+    capabilities:
+      majorVersion: '1'
+      minorVersion: '33'
+    templates:
+      - cert-controller-deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.hostUsers
+  - it: should permit override of hostUsers
+    set:
+      certController.create: true
+      certController.hostUsers: false
+    capabilities:
+      majorVersion: '1'
+      minorVersion: '33'
+    templates:
+      - cert-controller-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.hostUsers
+          value: false
+  - it: should ignore hostUsers on older k8s
+    set:
+      certController.create: true
+      certController.hostUsers: false
+    capabilities:
+      majorVersion: '1'
+      minorVersion: '32'
+    templates:
+      - cert-controller-deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.hostUsers
+  - it: should not have hostAliases by default
+    templates:
+      - cert-controller-deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.hostAliases
+  - it: should add hostAliases when configured
+    set:
+      certController.hostAliases:
+        - ip: "192.168.1.100"
+          hostnames:
+            - "cert.example.local"
+            - "cert"
+    templates:
+      - cert-controller-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.hostAliases
+          value:
+            - ip: "192.168.1.100"
+              hostnames:
+                - "cert.example.local"
+                - "cert"
+  - it: should use global hostAliases when certController level not set
+    set:
+      global:
+        hostAliases:
+          - ip: "192.168.1.200"
+            hostnames:
+              - "global.example.com"
+    templates:
+      - cert-controller-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.hostAliases
+          value:
+            - ip: "192.168.1.200"
+              hostnames:
+                - "global.example.com"
+  - it: should prefer certController hostAliases over global
+    set:
+      certController.hostAliases:
+        - ip: "192.168.1.100"
+          hostnames:
+            - "cert.example.com"
+      global:
+        hostAliases:
+          - ip: "192.168.1.200"
+            hostnames:
+              - "global.example.com"
+    templates:
+      - cert-controller-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.hostAliases
+          value:
+            - ip: "192.168.1.100"
+              hostnames:
+                - "cert.example.com"
+  - it: should not have enable-leader-election flag by default
+    templates:
+      - cert-controller-deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-leader-election=true"
+  - it: should have enable-leader-election flag when leaderElect is true
+    set:
+      leaderElect: true
+    templates:
+      - cert-controller-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-leader-election=true"
+  - it: should have enable-partial-cache flag when installCRDs is false
+    set:
+      installCRDs: false
+    templates:
+      - cert-controller-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-partial-cache=true"
+  - it: should not have enable-partial-cache flag when disabled
+    set:
+      certController.enablePartialCache: false
+    templates:
+      - cert-controller-deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-partial-cache=true"

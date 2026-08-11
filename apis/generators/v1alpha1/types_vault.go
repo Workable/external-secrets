@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import (
 	esv1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1"
 )
 
+// VaultDynamicSecretSpec defines the desired spec of VaultDynamicSecret.
 type VaultDynamicSecretSpec struct {
 	// Used to select the correct ESO controller (think: ingress.ingressClassName)
 	// The ESO controller is instantiated with a specific controller name and filters VDS based on this property
@@ -35,8 +36,14 @@ type VaultDynamicSecretSpec struct {
 	// Parameters to pass to Vault write (for non-GET methods)
 	Parameters *apiextensions.JSON `json:"parameters,omitempty"`
 
+	// GetParameters are query-string parameters passed to Vault on GET calls.
+	// Each key may map to multiple values, matching HTTP query-string semantics.
+	// Ignored for non-GET methods; use Parameters for write bodies.
+	// +optional
+	GetParameters map[string][]string `json:"getParameters,omitempty"`
+
 	// Result type defines which data is returned from the generator.
-	// By default it is the "data" section of the Vault API response.
+	// By default, it is the "data" section of the Vault API response.
 	// When using e.g. /auth/token/create the "data" section is empty but
 	// the "auth" section contains the generated token.
 	// Please refer to the vault docs regarding the result data structure.
@@ -60,15 +67,20 @@ type VaultDynamicSecretSpec struct {
 	AllowEmptyResponse bool `json:"allowEmptyResponse,omitempty"`
 }
 
+// VaultDynamicSecretResultType defines which part of the Vault API response should be returned.
 // +kubebuilder:validation:Enum=Data;Auth;Raw
 type VaultDynamicSecretResultType string
 
 const (
+	// VaultDynamicSecretResultTypeData specifies to return the "data" section of the Vault API response.
 	VaultDynamicSecretResultTypeData VaultDynamicSecretResultType = "Data"
+	// VaultDynamicSecretResultTypeAuth specifies to return the "auth" section of the Vault API response.
 	VaultDynamicSecretResultTypeAuth VaultDynamicSecretResultType = "Auth"
-	VaultDynamicSecretResultTypeRaw  VaultDynamicSecretResultType = "Raw"
+	// VaultDynamicSecretResultTypeRaw specifies to return the raw response from the Vault API.
+	VaultDynamicSecretResultTypeRaw VaultDynamicSecretResultType = "Raw"
 )
 
+// VaultDynamicSecret represents a generator that can create dynamic secrets from HashiCorp Vault.
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
@@ -81,6 +93,7 @@ type VaultDynamicSecret struct {
 	Spec VaultDynamicSecretSpec `json:"spec,omitempty"`
 }
 
+// VaultDynamicSecretList contains a list of VaultDynamicSecret resources.
 // +kubebuilder:object:root=true
 type VaultDynamicSecretList struct {
 	metav1.TypeMeta `json:",inline"`

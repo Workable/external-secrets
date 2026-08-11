@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ package v1
 
 import smmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 
-// AuthType describes how to authenticate to the Azure Keyvault
+// AzureAuthType describes how to authenticate to the Azure Keyvault
 // Only one of the following auth types may be specified.
 // If none of the following auth type is specified, the default one
 // is ServicePrincipal.
@@ -26,23 +26,24 @@ import smmeta "github.com/external-secrets/external-secrets/apis/meta/v1"
 type AzureAuthType string
 
 const (
-	// Using service principal to authenticate, which needs a tenantId, a clientId and a clientSecret.
+	// AzureServicePrincipal uses service principal to authenticate, which needs a tenantId, a clientId and a clientSecret.
 	AzureServicePrincipal AzureAuthType = "ServicePrincipal"
 
-	// Using Managed Identity to authenticate. Used with aad-pod-identity installed in the cluster.
+	// AzureManagedIdentity uses Managed Identity to authenticate. Used with aad-pod-identity installed in the cluster.
 	AzureManagedIdentity AzureAuthType = "ManagedIdentity"
 
-	// Using Workload Identity service accounts to authenticate.
+	// AzureWorkloadIdentity uses Workload Identity service accounts to authenticate.
 	AzureWorkloadIdentity AzureAuthType = "WorkloadIdentity"
 )
 
 // AzureEnvironmentType specifies the Azure cloud environment endpoints to use for
-// connecting and authenticating with Azure. By default it points to the public cloud AAD endpoint.
+// connecting and authenticating with Azure. By default, it points to the public cloud AAD endpoint.
 // The following endpoints are available, also see here: https://github.com/Azure/go-autorest/blob/main/autorest/azure/environments.go#L152
 // PublicCloud, USGovernmentCloud, ChinaCloud, GermanCloud, AzureStackCloud
 // +kubebuilder:validation:Enum=PublicCloud;USGovernmentCloud;ChinaCloud;GermanCloud;AzureStackCloud
 type AzureEnvironmentType string
 
+// These define the several AzureEnvironmentType currently supported.
 const (
 	AzureEnvironmentPublicCloud       AzureEnvironmentType = "PublicCloud"
 	AzureEnvironmentUSGovernmentCloud AzureEnvironmentType = "USGovernmentCloud"
@@ -73,12 +74,13 @@ type AzureCustomCloudConfig struct {
 	ResourceManagerEndpoint *string `json:"resourceManagerEndpoint,omitempty"`
 }
 
-// Configures an store to sync secrets using Azure KV.
+// AzureKVProvider configures a store to sync secrets using Azure KV.
 type AzureKVProvider struct {
 	// Auth type defines how to authenticate to the keyvault service.
 	// Valid values are:
 	// - "ServicePrincipal" (default): Using a service principal (tenantId, clientId, clientSecret)
 	// - "ManagedIdentity": Using Managed Identity assigned to the pod (see aad-pod-identity)
+	// - "WorkloadIdentity": Using a Kubernetes ServiceAccount federated with Entra ID
 	// +optional
 	// +kubebuilder:default=ServicePrincipal
 	AuthType *AzureAuthType `json:"authType,omitempty"`
@@ -117,15 +119,18 @@ type AzureKVProvider struct {
 	// +kubebuilder:default=false
 	UseAzureSDK *bool `json:"useAzureSDK,omitempty"`
 
-	// CustomCloudConfig defines custom Azure Stack Hub or Azure Stack Edge endpoints.
+	// CustomCloudConfig defines custom Azure endpoints for non-standard clouds.
 	// Required when EnvironmentType is AzureStackCloud.
+	// Optional for other environment types - useful for Azure China when using Workload Identity
+	// with AKS, where the OIDC issuer (login.partner.microsoftonline.cn) differs from the
+	// standard China Cloud endpoint (login.chinacloudapi.cn).
 	// IMPORTANT: This feature REQUIRES UseAzureSDK to be set to true. Custom cloud
 	// configuration is not supported with the legacy go-autorest SDK.
 	// +optional
 	CustomCloudConfig *AzureCustomCloudConfig `json:"customCloudConfig,omitempty"`
 }
 
-// Configuration used to authenticate with Azure.
+// AzureKVAuth is the configuration used to authenticate with Azure.
 type AzureKVAuth struct {
 	// The Azure clientId of the service principle or managed identity used for authentication.
 	// +optional

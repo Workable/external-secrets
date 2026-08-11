@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-logr/logr"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -37,7 +38,7 @@ import (
 	"github.com/external-secrets/external-secrets/pkg/controllers/secretstore/metrics"
 
 	// Load registered providers.
-	_ "github.com/external-secrets/external-secrets/pkg/provider/register"
+	_ "github.com/external-secrets/external-secrets/pkg/register"
 )
 
 const (
@@ -50,6 +51,7 @@ const (
 
 	msgStoreValidated     = "store validated"
 	msgStoreNotMaintained = "store isn't currently maintained. Please plan and prepare accordingly."
+	msgStoreDeprecated    = "store is deprecated and will be removed on the next minor release. Please plan and prepare accordingly."
 
 	// Finalizer for SecretStores when they have PushSecrets with DeletionPolicy=Delete.
 	secretStoreFinalizer = "secretstore.externalsecrets.io/finalizer"
@@ -88,13 +90,31 @@ func reconcile(ctx context.Context, req ctrl.Request, ss esapi.GenericStore, cl 
 
 	requeueInterval := opts.RequeueInterval
 
-	if ss.GetSpec().RefreshInterval != 0 {
-		requeueInterval = time.Second * time.Duration(ss.GetSpec().RefreshInterval)
+	refreshInterval, refreshErr := ss.GetSpec().GetRefreshInterval()
+	if refreshErr != nil {
+		return ctrl.Result{}, fmt.Errorf("invalid refreshInterval: %w", refreshErr)
+	}
+	if refreshInterval > 0 {
+		requeueInterval = refreshInterval
 	}
 
 	// patch status when done processing
 	p := client.MergeFrom(ss.Copy())
+	storeUID := ss.GetObjectMeta().UID
 	defer func() {
+		current := ss.Copy()
+		if getErr := cl.Get(ctx, req.NamespacedName, current); getErr != nil {
+			if apierrors.IsNotFound(getErr) {
+				log.V(1).Info("store was deleted, skipping status patch")
+				return
+			}
+			log.Error(getErr, "unable to get store for status patch")
+			return
+		}
+		if current.GetObjectMeta().UID != storeUID {
+			log.V(1).Info("store was replaced, skipping status patch")
+			return
+		}
 		err := cl.Status().Patch(ctx, ss, p)
 		if err != nil {
 			log.Error(err, errPatchStatus)
@@ -125,9 +145,16 @@ func reconcile(ctx context.Context, req ctrl.Request, ss esapi.GenericStore, cl 
 	}
 	annotations := ss.GetAnnotations()
 	_, ok := annotations["external-secrets.io/ignore-maintenance-checks"]
-
-	if !bool(isMaintained) && !ok {
-		opts.Recorder.Event(ss, v1.EventTypeWarning, esapi.StoreUnmaintained, msgStoreNotMaintained)
+	if !ok {
+		switch isMaintained {
+		case esapi.MaintenanceStatusNotMaintained:
+			opts.Recorder.Event(ss, v1.EventTypeWarning, esapi.StoreUnmaintained, msgStoreNotMaintained)
+		case esapi.MaintenanceStatusDeprecated:
+			opts.Recorder.Event(ss, v1.EventTypeWarning, esapi.StoreDeprecated, msgStoreDeprecated)
+		case esapi.MaintenanceStatusMaintained:
+		default:
+			// no warnings
+		}
 	}
 
 	capStatus := esapi.SecretStoreStatus{

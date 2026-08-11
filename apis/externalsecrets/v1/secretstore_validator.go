@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,39 +22,51 @@ import (
 	"fmt"
 	"regexp"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-var _ admission.CustomValidator = &GenericStoreValidator{}
+// Ensures ExternalSecretValidator implements the admission.CustomValidator interface correctly.
+var _ admission.Validator[*SecretStore] = &GenericStoreValidator{}
+var _ admission.Validator[*ClusterSecretStore] = &GenericClusterStoreValidator{}
 
 const (
-	errInvalidStore       = "invalid store"
 	warnStoreUnmaintained = "store %s isn't currently maintained. Please plan and prepare accordingly."
+	warnStoreDeprecated   = "store %s is deprecated and will stop working on the next major version. Please plan and prepare accordingly."
 )
 
+// GenericStoreValidator implements webhook validation for SecretStore resources.
 type GenericStoreValidator struct{}
 
+// GenericClusterStoreValidator implements webhook validation for ClusterSecretStore resources.
+type GenericClusterStoreValidator struct{}
+
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type.
-func (r *GenericStoreValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	st, ok := obj.(GenericStore)
-	if !ok {
-		return nil, errors.New(errInvalidStore)
-	}
-	return validateStore(st)
+func (r *GenericStoreValidator) ValidateCreate(_ context.Context, obj *SecretStore) (admission.Warnings, error) {
+	return validateStore(obj)
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type.
-func (r *GenericStoreValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	st, ok := newObj.(GenericStore)
-	if !ok {
-		return nil, errors.New(errInvalidStore)
-	}
-	return validateStore(st)
+func (r *GenericStoreValidator) ValidateUpdate(_ context.Context, _, newObj *SecretStore) (admission.Warnings, error) {
+	return validateStore(newObj)
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type.
-func (r *GenericStoreValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (r *GenericStoreValidator) ValidateDelete(_ context.Context, _ *SecretStore) (admission.Warnings, error) {
+	return nil, nil
+}
+
+// ValidateCreate implements webhook.Validator so a webhook will be registered for the type.
+func (r *GenericClusterStoreValidator) ValidateCreate(_ context.Context, obj *ClusterSecretStore) (admission.Warnings, error) {
+	return validateStore(obj)
+}
+
+// ValidateUpdate implements webhook.Validator so a webhook will be registered for the type.
+func (r *GenericClusterStoreValidator) ValidateUpdate(_ context.Context, _, newObj *ClusterSecretStore) (admission.Warnings, error) {
+	return validateStore(newObj)
+}
+
+// ValidateDelete implements webhook.Validator so a webhook will be registered for the type.
+func (r *GenericClusterStoreValidator) ValidateDelete(_ context.Context, _ *ClusterSecretStore) (admission.Warnings, error) {
 	return nil, nil
 }
 
@@ -63,17 +75,30 @@ func validateStore(store GenericStore) (admission.Warnings, error) {
 		return nil, err
 	}
 
+	// Reject an unparseable refreshInterval duration string at admission. The
+	// x-kubernetes-int-or-string schema accepts any string, so the duration
+	// format can only be validated here (or at reconcile).
+	if _, err := store.GetSpec().GetRefreshInterval(); err != nil {
+		return nil, err
+	}
+
 	provider, err := GetProvider(store)
 	if err != nil {
 		return nil, err
 	}
-	isMaintained, err := GetMaintenanceStatus(store)
+	status, err := GetMaintenanceStatus(store)
 	if err != nil {
 		return nil, err
 	}
 	warns, err := provider.ValidateStore(store)
-	if !isMaintained {
+	switch status {
+	case MaintenanceStatusNotMaintained:
 		warns = append(warns, fmt.Sprintf(warnStoreUnmaintained, store.GetName()))
+	case MaintenanceStatusDeprecated:
+		warns = append(warns, fmt.Sprintf(warnStoreDeprecated, store.GetName()))
+	case MaintenanceStatusMaintained:
+	default:
+		// no warnings
 	}
 	return warns, err
 }

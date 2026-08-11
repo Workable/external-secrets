@@ -1,5 +1,5 @@
 # set the shell to bash always
-SHELL         := /bin/bash
+SHELL         := /usr/bin/env bash
 
 # set make and shell flags to exit on errors
 MAKEFLAGS     += --warn-undefined-variables
@@ -73,19 +73,23 @@ FAIL	= (echo ${TIME} ${RED}[FAIL]${CNone} && false)
 # Conformance
 
 reviewable: generate docs manifests helm.generate helm.schema.update helm.docs lint license.check helm.test.update test.crds.update tf.fmt ## Ensure a PR is ready for review.
+	@GOWORK=off go -C hack/tools mod tidy # Tools and their deps are not to be included in project's GOWORK or in the project go.mod/sum. We consider them external.
+	@GOWORK=off go -C hack/tools/gen-crd-api-reference-docs mod tidy
+	@GOWORK=off go -C hack/tools/golangci-lint mod tidy
 	@go mod tidy
 	@cd e2e/ && go mod tidy
+	@cd apis/ && go mod tidy
+	@cd runtime/ && go mod tidy
+	@for provider in providers/v1/*/; do (cd $$provider && go mod tidy); done
+	@for generator in generators/v1/*/; do (cd $$generator && go mod tidy); done
 
 check-diff: reviewable ## Ensure branch is clean.
 	@$(INFO) checking that branch is clean
-	@test -z "$$(git status --porcelain)" || (echo "$$(git status --porcelain)" && $(FAIL))
+	@status="$$(git status --porcelain)" && test -z "$$status" || (printf '%s\n' "$$status" && $(FAIL))
 	@$(OK) branch is clean
 
-update-deps:
-	go get -u
-	cd e2e && go get -u
-	@go mod tidy
-	@cd e2e/ && go mod tidy
+update-deps: ## Update dependencies across all modules (root, apis, runtime, e2e, providers, generators)
+	@./hack/update-deps.sh
 
 .PHONY: license.check
 license.check:
@@ -94,10 +98,26 @@ license.check:
 # ====================================================================================
 # Golang
 
+.PHONY: go-work ## Creates go workspace and syncs it
+go-work:
+	@$(INFO) creating go workspace
+	@rm -rf go.work go.work.sum
+	@go work init
+	@go work use -r .
+	@go work edit -dropuse ./e2e -dropuse ./hack/tools -dropuse ./hack/tools/gen-crd-api-reference-docs -dropuse ./hack/tools/golangci-lint
+	@go work sync
+	@$(OK) created go workspace
+
 .PHONY: test
 test: generate envtest ## Run tests
 	@$(INFO) go test unit-tests
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(KUBERNETES_VERSION) -p path --bin-dir $(LOCALBIN))" go test -race -v $(shell go list ./... | grep -v e2e) -coverprofile cover.out
+	@set -e; \
+	snap=$$(mktemp); \
+	./hack/modfiles.sh snapshot "$$snap"; \
+	trap "./hack/modfiles.sh restore $$snap" EXIT INT TERM; \
+	$(MAKE) go-work; \
+	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(KUBERNETES_VERSION) -p path --bin-dir $(LOCALBIN))" \
+	    go test -tags $(PROVIDER) work -v -race -coverprofile cover.out
 	@$(OK) go test unit-tests
 
 .PHONY: test.e2e
@@ -127,29 +147,52 @@ test.crds.update: cty crds.generate.tests ## Update the snapshots used by the CR
 .PHONY: build
 build: $(addprefix build-,$(ARCH)) ## Build binary
 
+PROVIDER ?= all_providers
 .PHONY: build-%
 build-%: generate ## Build binary for the specified arch
 	@$(INFO) go build $*
 	$(BUILD_ARGS) GOOS=linux GOARCH=$* \
-		go build -o '$(OUTPUT_DIR)/external-secrets-linux-$*' main.go
+		go build -tags $(PROVIDER) -o '$(OUTPUT_DIR)/external-secrets-linux-$*' main.go
 	@$(OK) go build $*
 
-lint: golangci-lint ## Run golangci-lint
-	@if ! $(GOLANGCI_LINT) run; then \
-		echo -e "\033[0;33mgolangci-lint failed: some checks can be fixed with \`\033[0;32mmake fmt\033[0m\033[0;33m\`\033[0m"; \
-		exit 1; \
+lint: golangci-lint ## Run golangci-lint (set LINT_TARGET to run on specific module, LINT_JOBS for parallel jobs)
+	@if [ -n "$(LINT_TARGET)" ]; then \
+		$(INFO) Running golangci-lint on $(LINT_TARGET); \
+		(cd $(LINT_TARGET) && $(GOLANGCI_LINT) run ./...) || exit 1; \
+		$(OK) Finished linting $(LINT_TARGET); \
+	else \
+		$(INFO) Running golangci-lint on all modules in parallel; \
+		JOBS=$${LINT_JOBS:-1}; \
+		TMPDIR=$$(mktemp -d); \
+		GOLANGCI=$(GOLANGCI_LINT); \
+		trap "rm -rf $$TMPDIR" EXIT; \
+		export TMPDIR GOLANGCI; \
+		find . -name go.mod -not -path "*/vendor/*" -not -path "*/e2e/*" -not -path "*/hack/tools/*" -not -path "*/node_modules/*" -exec dirname {} \; | \
+		xargs -n 1 -P $$JOBS sh -c ' \
+			module="$$0"; \
+			name=$$(echo "$$module" | sed "s/[\/\.]/_/g"); \
+			echo "Linting $$module"; \
+			if (cd "$$module" && $$GOLANGCI run ./... 2>&1); then \
+				echo "✓ $$module" > "$$TMPDIR/$$name.success"; \
+			else \
+				echo "✗ $$module" > "$$TMPDIR/$$name.failed"; \
+				exit 1; \
+			fi \
+		'; \
+		FAILED=$$(find $$TMPDIR -name "*.failed" 2>/dev/null | wc -l | tr -d " "); \
+		SUCCESS=$$(find $$TMPDIR -name "*.success" 2>/dev/null | wc -l | tr -d " "); \
+		echo "Results: $$SUCCESS passed, $$FAILED failed"; \
+		if [ $$FAILED -ne 0 ]; then \
+			echo "Failed modules:"; \
+			cat $$TMPDIR/*.failed 2>/dev/null || true; \
+			$(ERR) Linting failed in $$FAILED module\(s\); \
+			exit 1; \
+		fi; \
+		$(OK) Finished linting all modules; \
 	fi
-	@$(OK) Finished linting
 
-fmt: golangci-lint ## Ensure consistent code style
-	@go mod tidy
-	@cd e2e/ && go mod tidy
-	@go fmt ./...
-	@$(GOLANGCI_LINT) run --fix
-	@$(OK) Ensured consistent code style
-
-generate: ## Generate code and crds
-	@./hack/crd.generate.sh $(BUNDLE_DIR) $(CRD_DIR)
+generate: controller-gen ## Generate code and crds
+	@CONTROLLER_GEN=$(CONTROLLER_GEN) ./hack/crd.generate.sh $(BUNDLE_DIR) $(CRD_DIR)
 	@$(OK) Finished generating deepcopy and crds
 
 # ====================================================================================
@@ -158,7 +201,7 @@ generate: ## Generate code and crds
 # This is for running out-of-cluster locally, and is for convenience.
 # For more control, try running the binary directly with different arguments.
 run: generate ## Run app locally (without a k8s cluster)
-	go run ./main.go
+	go run -tags $(PROVIDER) ./main.go
 
 manifests: helm.generate ## Generate manifests from helm chart
 	mkdir -p $(OUTPUT_DIR)/deploy/manifests
@@ -183,7 +226,7 @@ tilt-up: tilt manifests ## Generates the local manifests that tilt will use to d
 
 helm.docs: ## Generate helm docs
 	@cd $(HELM_DIR); \
-	$(DOCKER) run --rm -v $(shell pwd)/$(HELM_DIR):/helm-docs -u $(shell id -u) docker.io/jnorwood/helm-docs:v1.7.0
+	$(DOCKER) run --rm -v $(shell pwd)/$(HELM_DIR):/helm-docs -u $(shell id -u) docker.io/jnorwood/helm-docs:v1.14.2
 
 HELM_VERSION ?= $(shell helm show chart $(HELM_DIR) | grep '^version:' | sed 's/version: //g')
 
@@ -252,6 +295,7 @@ helm.update.appversion:
 
 # ====================================================================================
 # Documentation
+
 .PHONY: docs
 docs: generate ## Generate docs
 	$(MAKE) -C ./hack/api-docs build
@@ -265,10 +309,6 @@ docs.serve: ## Serve docs
 	$(MAKE) -C ./hack/api-docs serve
 
 DOCS_VERSION ?= $(VERSION)
-.PHONY: docs.check
-docs.check: ## Check docs
-	$(MAKE) -C ./hack/api-docs check DOCS_VERSION=$(DOCS_VERSION)
-
 .PHONY: docs.update
 docs.update: ## Update docs
 	$(MAKE) -C ./hack/api-docs stability-support.update DOCS_VERSION=$(DOCS_VERSION)
@@ -294,8 +334,8 @@ docker.tag:  ## Emit IMAGE_TAG
 .PHONY: docker.build
 docker.build: $(addprefix build-,$(ARCH)) ## Build the docker image
 	@$(INFO) $(DOCKER) build
-	echo $(DOCKER) build -f $(DOCKERFILE) . $(DOCKER_BUILD_ARGS) -t $(IMAGE_NAME):$(IMAGE_TAG)
-	DOCKER_BUILDKIT=1 $(DOCKER) build -f $(DOCKERFILE) . $(DOCKER_BUILD_ARGS) -t $(IMAGE_NAME):$(IMAGE_TAG)
+	echo $(DOCKER) buildx build -f $(DOCKERFILE) . $(DOCKER_BUILD_ARGS) -t $(IMAGE_NAME):$(IMAGE_TAG)
+	$(DOCKER) buildx build -f $(DOCKERFILE) . $(DOCKER_BUILD_ARGS) -t $(IMAGE_NAME):$(IMAGE_TAG)
 	@$(OK) $(DOCKER) build
 
 .PHONY: docker.push
@@ -313,11 +353,11 @@ SOURCE_TAG ?= $(VERSION)$(TAG_SUFFIX)
 docker.promote: ## Promote the docker image to the registry
 	@$(INFO) promoting $(SOURCE_TAG) to $(RELEASE_TAG)
 	$(DOCKER) manifest inspect --verbose $(IMAGE_NAME):$(SOURCE_TAG) > .tagmanifest
-	for digest in $$(jq -r 'if type=="array" then .[].Descriptor.digest else .Descriptor.digest end' < .tagmanifest); do \
+	for digest in $$(jq -r 'if type=="array" then .[] | select(.Descriptor.platform.architecture != "unknown") | .Descriptor.digest else .Descriptor.digest end' < .tagmanifest); do \
 		$(DOCKER) pull $(IMAGE_NAME)@$$digest; \
 	done
 	$(DOCKER) manifest create $(IMAGE_NAME):$(RELEASE_TAG) \
-		$$(jq -j '"--amend $(IMAGE_NAME)@" + if type=="array" then .[].Descriptor.digest else .Descriptor.digest end + " "' < .tagmanifest)
+		$$(jq -j 'if type=="array" then [.[] | select(.Descriptor.platform.architecture != "unknown")] | map("--amend $(IMAGE_NAME)@" + .Descriptor.digest) | join(" ") else "--amend $(IMAGE_NAME)@" + .Descriptor.digest end' < .tagmanifest)
 	$(DOCKER) manifest push $(IMAGE_NAME):$(RELEASE_TAG)
 	@$(OK) $(DOCKER) push $(RELEASE_TAG) \
 
@@ -369,22 +409,16 @@ clean:  ## Clean bins
 # ====================================================================================
 # Build Dependencies
 
-ifeq ($(OS),Windows_NT)     # is Windows_NT on XP, 2000, 7, Vista, 10...
-    detected_OS := windows
-    real_OS := windows
-    arch := x86_64
-else
-    detected_OS := $(shell uname -s)
-    real_OS := $(detected_OS)
-    arch := $(shell uname -m)
-    ifeq ($(detected_OS),Darwin)
+detected_OS := $(shell uname -s)
+real_OS := $(detected_OS)
+arch := $(shell uname -m)
+ifeq ($(detected_OS),Darwin)
         detected_OS := mac
         real_OS := darwin
-    endif
-    ifeq ($(detected_OS),Linux)
+endif
+ifeq ($(detected_OS),Linux)
         detected_OS := linux
-        real_OS := linux
-    endif
+	real_OS := linux
 endif
 
 ## Location to install dependencies to
@@ -396,25 +430,48 @@ $(LOCALBIN):
 TILT ?= $(LOCALBIN)/tilt
 CTY ?= $(LOCALBIN)/cty
 ENVTEST ?= $(LOCALBIN)/setup-envtest
+CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint
-
+DLV ?= $(LOCALBIN)/dlv
+CRANE ?= $(LOCALBIN)/crane
+GEN_CRD_API_REFERENCE_DOCS ?= $(LOCALBIN)/gen-crd-api-reference-docs
+LINT_TARGET ?= ""
 ## Tool Versions
-GOLANGCI_VERSION := 2.4.0
 KUBERNETES_VERSION := 1.33.x
 TILT_VERSION := 0.33.21
 CTY_VERSION := 1.1.3
 
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
-$(ENVTEST): $(LOCALBIN)
-	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+$(ENVTEST): Makefile hack/tools/go.mod hack/tools/go.sum | $(LOCALBIN)
+	GOWORK=off GOBIN=$(abspath $(LOCALBIN)) go -C hack/tools install -mod=readonly sigs.k8s.io/controller-runtime/tools/setup-envtest
+
+.PHONY: controller-gen
+controller-gen: $(CONTROLLER_GEN) ## Build controller-gen locally if necessary.
+$(CONTROLLER_GEN): Makefile hack/tools/go.mod hack/tools/go.sum
+	mkdir -p $(dir $@)
+	GOWORK=off go -C hack/tools build -mod=readonly -o $(abspath $@) sigs.k8s.io/controller-tools/cmd/controller-gen
+
+.PHONY: gen-crd-api-reference-docs
+gen-crd-api-reference-docs: $(GEN_CRD_API_REFERENCE_DOCS) ## Download gen-crd-api-reference-docs locally if necessary.
+$(GEN_CRD_API_REFERENCE_DOCS): Makefile hack/tools/gen-crd-api-reference-docs/go.mod hack/tools/gen-crd-api-reference-docs/go.sum
+	mkdir -p $(dir $@)
+	GOWORK=off go -C hack/tools/gen-crd-api-reference-docs build -mod=readonly -o $(abspath $@) github.com/ahmetb/gen-crd-api-reference-docs
 
 .PHONY: golangci-lint
-.PHONY: $(GOLANGCI_LINT)
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
-$(GOLANGCI_LINT): $(LOCALBIN)
-	test -s $(LOCALBIN)/golangci-lint && $(LOCALBIN)/golangci-lint version | grep -q $(GOLANGCI_VERSION) || \
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(LOCALBIN) v$(GOLANGCI_VERSION)
+$(GOLANGCI_LINT): Makefile hack/tools/golangci-lint/go.mod hack/tools/golangci-lint/go.sum | $(LOCALBIN)
+	GOWORK=off GOBIN=$(abspath $(LOCALBIN)) go -C hack/tools/golangci-lint install -mod=readonly github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+
+.PHONY: dlv
+dlv: $(DLV) ## Build Delve locally for the Tilt debug image.
+$(DLV): Makefile hack/tools/go.mod hack/tools/go.sum | $(LOCALBIN)
+	GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOBIN=$(abspath $(LOCALBIN)) go -C hack/tools install -mod=readonly github.com/go-delve/delve/cmd/dlv
+
+.PHONY: crane
+crane: $(CRANE) ## Build crane locally if necessary.
+$(CRANE): Makefile hack/tools/go.mod hack/tools/go.sum | $(LOCALBIN)
+	GOWORK=off GOBIN=$(abspath $(LOCALBIN)) go -C hack/tools install -mod=readonly github.com/google/go-containerregistry/cmd/crane
 
 .PHONY: tilt
 .PHONY: $(TILT)

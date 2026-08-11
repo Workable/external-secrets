@@ -1,0 +1,175 @@
+/*
+Copyright © The ESO Authors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package fake
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"math/rand"
+
+	"github.com/cyberark/conjur-api-go/conjurapi"
+)
+
+type AddSecretCall struct {
+	Variable string
+	Value    string
+}
+
+type LoadPolicyCall struct {
+	PolicyID string
+	Policy   string
+}
+
+type ConjurMockClient struct {
+	AddSecretCalls  []AddSecretCall
+	LoadPolicyCalls []LoadPolicyCall
+	SecretDetails   map[string]*conjurapi.StaticSecretResponse
+	SecretValues    map[string][]byte
+}
+
+func (mc *ConjurMockClient) AddSecret(variable, secret string) error {
+	mc.AddSecretCalls = append(mc.AddSecretCalls, AddSecretCall{
+		Variable: variable,
+		Value:    secret,
+	})
+	return nil
+}
+
+func (mc *ConjurMockClient) GetStaticSecretDetails(id string) (*conjurapi.StaticSecretResponse, error) {
+	if mc.SecretDetails == nil || mc.SecretDetails[id] == nil {
+		return &conjurapi.StaticSecretResponse{
+			StaticSecret: conjurapi.StaticSecret{
+				Annotations: map[string]string{
+					"managed-by": "external-secrets",
+				},
+			},
+			Permissions: conjurapi.Permission{},
+		}, nil
+	}
+	return mc.SecretDetails[id], nil
+}
+
+func (mc *ConjurMockClient) LoadPolicy(policyMode conjurapi.PolicyMode, policyID string, policy io.Reader) (*conjurapi.PolicyResponse, error) {
+	body, _ := io.ReadAll(policy)
+	mc.LoadPolicyCalls = append(mc.LoadPolicyCalls, LoadPolicyCall{
+		PolicyID: policyID,
+		Policy:   string(body),
+	})
+	return &conjurapi.PolicyResponse{}, nil
+}
+
+func (mc *ConjurMockClient) RetrieveSecret(secret string) (result []byte, err error) {
+	if value, ok := mc.SecretValues[secret]; ok {
+		return value, nil
+	}
+	if secret == "error" {
+		err = errors.New("error")
+		return nil, err
+	}
+	if secret == "json_map" {
+		return []byte(`{"key1":"value1","key2":"value2"}`), nil
+	}
+	if secret == "json_nested" {
+		return []byte(`{"key1":"value1","key2":{"key3":"value3","key4":"value4"}}`), nil
+	}
+	return []byte("secret"), nil
+}
+
+func (mc *ConjurMockClient) RetrieveBatchSecrets(variableIDs []string) (map[string][]byte, error) {
+	secrets := make(map[string][]byte)
+	for _, id := range variableIDs {
+		if id == "error" {
+			return nil, errors.New("error")
+		}
+		fullID := fmt.Sprintf("conjur:variable:%s", id)
+		secrets[fullID] = []byte("secret")
+	}
+	return secrets, nil
+}
+
+func (mc *ConjurMockClient) Resources(filter *conjurapi.ResourceFilter) (resources []map[string]any, err error) {
+	policyID := "conjur:policy:root"
+	if filter.Offset == 0 {
+		// First "page" of secrets: 2 static ones and 98 random ones
+		secrets := []map[string]any{ //nolint:prealloc // static init + dynamic append
+			{
+				"id": "conjur:variable:secret1",
+				"annotations": []any{
+					map[string]any{
+						"name":  "conjur/kind",
+						"value": "dummy",
+					},
+				},
+			},
+			{
+				"id":    "conjur:variable:secret2",
+				"owner": "conjur:policy:admin1",
+				"annotations": []any{
+					map[string]any{
+						"name":   "Description",
+						"policy": policyID,
+						"value":  "Lorem ipsum dolor sit amet",
+					},
+					map[string]any{
+						"name":   "conjur/kind",
+						"policy": policyID,
+						"value":  "password",
+					},
+				},
+				"permissions": map[string]string{
+					"policy":    policyID,
+					"privilege": "update",
+					"role":      "conjur:group:admins",
+				},
+				"policy": policyID,
+			},
+		}
+		// Add 98 random secrets so we can simulate a full "page" of 100 secrets
+		secrets = append(secrets, generateRandomSecrets(98)...)
+		return secrets, nil
+	} else if filter.Offset == 100 {
+		// Second "page" of secrets: 100 random ones
+		return generateRandomSecrets(100), nil
+	}
+
+	// Add 50 random secrets so we can simulate a partial "page" of 50 secrets
+	return generateRandomSecrets(50), nil
+}
+
+func generateRandomSecrets(count int) []map[string]any {
+	secrets := make([]map[string]any, 0, count)
+	for range count {
+		//nolint:gosec
+		randomNumber := rand.Intn(10000)
+		secrets = append(secrets, generateRandomSecret(randomNumber))
+	}
+	return secrets
+}
+
+func generateRandomSecret(num int) map[string]any {
+	return map[string]any{
+		"id": fmt.Sprintf("conjur:variable:random/var_%d", num),
+		"annotations": []map[string]any{
+			{
+				"name":  "random_number",
+				"value": fmt.Sprintf("%d", num),
+			},
+		},
+		"policy": "conjur:policy:random",
+	}
+}

@@ -1,4 +1,4 @@
-## Pulumi ESC
+# Pulumi ESC
 
 Sync environments, configs and secrets from [Pulumi ESC](https://www.pulumi.com/product/esc/) to Kubernetes using the External Secrets Operator.
 
@@ -6,11 +6,16 @@ Sync environments, configs and secrets from [Pulumi ESC](https://www.pulumi.com/
 
 More information about setting up [Pulumi](https://www.pulumi.com/) ESC can be found in the [Pulumi ESC documentation](https://www.pulumi.com/docs/esc/).
 
-### Authentication
+## Authentication
 
-Pulumi [Access Tokens](https://www.pulumi.com/docs/pulumi-cloud/access-management/access-tokens/) are recommended to access Pulumi ESC.
+The Pulumi provider supports two authentication methods:
 
-### Creating a SecretStore
+1. **Access Token** (recommended for most use cases): Use Pulumi [Access Tokens](https://www.pulumi.com/docs/pulumi-cloud/access-management/access-tokens/) stored in Kubernetes secrets.
+2. **OIDC** (recommended for workload identity): Use Kubernetes ServiceAccount tokens to authenticate via OIDC, eliminating the need to store static credentials.
+
+## Creating a SecretStore
+
+### Using Access Token
 
 A Pulumi `SecretStore` can be created by specifying the `organization`, `project` and `environment` and referencing a Kubernetes secret containing the `accessToken`.
 
@@ -25,15 +30,34 @@ spec:
       organization: <NAME_OF_THE_ORGANIZATION>
       project: <NAME_OF_THE_PROJECT>
       environment: <NAME_OF_THE_ENVIRONMENT>
-      accessToken:
-        secretRef:
-          name: <NAME_OF_KUBE_SECRET>
-          key: <KEY_IN_KUBE_SECRET>
+      auth:
+        accessToken:
+          secretRef:
+            name: <NAME_OF_KUBE_SECRET>
+            key: <KEY_IN_KUBE_SECRET>
 ```
+
+**Note:** The deprecated `accessToken` field at the root level is still supported for backward compatibility, but using `auth.accessToken` is recommended.
+
+### Using OIDC
+
+Alternatively, you can use OIDC authentication with Kubernetes ServiceAccount tokens. This method eliminates the need to store static credentials.
+
+First, configure OIDC in your Pulumi organization by following the [Pulumi OIDC documentation](https://www.pulumi.com/docs/pulumi-cloud/access-management/oidc/).
+
+Then create a ServiceAccount and SecretStore:
+
+```yaml
+{% include 'pulumi-oidc-secret-store.yaml' %}
+```
+
+The `expirationSeconds` field is optional and defaults to 600 seconds (10 minutes).
 
 If required, the API URL (`apiUrl`) can be customized as well. If not specified, the default value is `https://api.pulumi.com/api/esc`.
 
-### Creating a ClusterSecretStore
+## Creating a ClusterSecretStore
+
+### Using Access Token
 
 Similarly, a `ClusterSecretStore` can be created by specifying the `namespace` and referencing a Kubernetes secret containing the `accessToken`.
 
@@ -48,14 +72,45 @@ spec:
       organization: <NAME_OF_THE_ORGANIZATION>
       project: <NAME_OF_THE_PROJECT>
       environment: <NAME_OF_THE_ENVIRONMENT>
-      accessToken:
-        secretRef:
-          name: <NAME_OF_KUBE_SECRET>
-          key: <KEY_IN_KUBE_SECRET>
-          namespace: <NAMESPACE>
+      auth:
+        accessToken:
+          secretRef:
+            name: <NAME_OF_KUBE_SECRET>
+            key: <KEY_IN_KUBE_SECRET>
+            namespace: <NAMESPACE>
 ```
 
-### Referencing Secrets
+### Using OIDC
+
+For ClusterSecretStore with OIDC, you need to specify the ServiceAccount namespace:
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pulumi-oidc-sa
+  namespace: external-secrets
+---
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: pulumi-oidc-cluster-store
+spec:
+  provider:
+    pulumi:
+      organization: my-org
+      project: my-project
+      environment: production
+      auth:
+        oidcConfig:
+          organization: my-org
+          serviceAccountRef:
+            name: pulumi-oidc-sa
+            namespace: external-secrets
+          expirationSeconds: 600
+```
+
+## Referencing Secrets
 
 Secrets can be referenced by defining the `key` containing the JSON path to the secret. Pulumi ESC secrets are internally organized as a JSON object.
 
@@ -65,7 +120,7 @@ kind: ExternalSecret
 metadata:
   name: secret
 spec:
-  refreshInterval: 1h
+  refreshInterval: 1h0m0s
   secretStoreRef:
     kind: SecretStore
     name: secret-store
@@ -77,7 +132,7 @@ spec:
 
 **Note:** `key` is not following the JSON Path syntax, but rather the Pulumi path syntax.
 
-#### Examples
+### Examples
 
 * root
 * root.nested
@@ -99,7 +154,7 @@ spec:
 
 See [Pulumi's documentation](https://www.pulumi.com/docs/concepts/options/ignorechanges/) for more information.
 
-### PushSecrets
+## PushSecrets
 
 With the latest release of Pulumi ESC, secrets can be pushed to the Pulumi service. This can be done by creating a `PushSecrets` object.
 
@@ -111,7 +166,7 @@ kind: PushSecret
 metadata:
   name: push-secret-example
 spec:
-  refreshInterval: 1h
+  refreshInterval: 1h0m0s
   selector:
     secret:
       name: <NAME_OF_KUBE_SECRET>
@@ -127,7 +182,7 @@ spec:
 
 This will then push the secret to the Pulumi service. If the secret already exists, it will be updated.
 
-### Limitations
+## Limitations
 
 Currently, the Pulumi provider only supports nested objects up to a depth of 1. Any nested objects beyond this depth will be stored as a string with the JSON representation.
 

@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,7 +26,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/external-secrets/external-secrets/pkg/esutils"
 	"github.com/go-logr/logr"
 	admissionregistration "k8s.io/api/admissionregistration/v1"
 	v1 "k8s.io/api/core/v1"
@@ -39,7 +38,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 
-	"github.com/external-secrets/external-secrets/pkg/constants"
+	"github.com/external-secrets/external-secrets/runtime/constants"
+	"github.com/external-secrets/external-secrets/runtime/esutils"
 )
 
 // Reconciler reconciles a ValidatingWebhookConfiguration object
@@ -126,7 +126,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	err = r.updateConfig(logr.NewContext(ctx, log), &cfg)
 	if err != nil {
 		log.Error(err, "could not update webhook config")
-		r.recorder.Eventf(&cfg, v1.EventTypeWarning, ReasonUpdateFailed, err.Error())
+		r.recorder.Eventf(&cfg, v1.EventTypeWarning, ReasonUpdateFailed, "%s", err)
 		return ctrl.Result{
 			RequeueAfter: time.Minute,
 		}, err

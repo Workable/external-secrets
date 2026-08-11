@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -46,6 +46,24 @@ type PasswordSpec struct {
 	// set AllowRepeat to true to allow repeating characters.
 	// +kubebuilder:default=false
 	AllowRepeat bool `json:"allowRepeat"`
+
+	// SecretKeys defines the keys that will be populated with generated passwords.
+	// Defaults to "password" when not set.
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:Items:MinLength=1
+	SecretKeys []string `json:"secretKeys,omitempty"`
+
+	// Encoding specifies the encoding of the generated password.
+	// Valid values are:
+	// - "raw" (default): no encoding
+	// - "base64": standard base64 encoding
+	// - "base64url": base64url encoding
+	// - "base32": base32 encoding
+	// - "hex": hexadecimal encoding
+	// +kubebuilder:default="raw"
+	// +kubebuilder:validation:Enum=base64;base64url;base32;hex;raw
+	Encoding *string `json:"encoding,omitempty"`
 }
 
 // Password generates a random password based on the

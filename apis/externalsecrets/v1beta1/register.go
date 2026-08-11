@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -35,12 +35,14 @@ var (
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
 	SchemeBuilder = &scheme.Builder{GroupVersion: SchemeGroupVersion}
-	AddToScheme   = SchemeBuilder.AddToScheme
+
+	// AddToScheme adds the types in this group-version to the given scheme.
+	AddToScheme = SchemeBuilder.AddToScheme
 )
 
 // ExternalSecret type metadata.
 var (
-	ExtSecretKind             = reflect.TypeOf(ExternalSecret{}).Name()
+	ExtSecretKind             = reflect.TypeFor[ExternalSecret]().Name()
 	ExtSecretGroupKind        = schema.GroupKind{Group: Group, Kind: ExtSecretKind}.String()
 	ExtSecretKindAPIVersion   = ExtSecretKind + "." + SchemeGroupVersion.String()
 	ExtSecretGroupVersionKind = SchemeGroupVersion.WithKind(ExtSecretKind)
@@ -48,7 +50,7 @@ var (
 
 // ClusterExternalSecret type metadata.
 var (
-	ClusterExtSecretKind             = reflect.TypeOf(ClusterExternalSecret{}).Name()
+	ClusterExtSecretKind             = reflect.TypeFor[ClusterExternalSecret]().Name()
 	ClusterExtSecretGroupKind        = schema.GroupKind{Group: Group, Kind: ClusterExtSecretKind}.String()
 	ClusterExtSecretKindAPIVersion   = ClusterExtSecretKind + "." + SchemeGroupVersion.String()
 	ClusterExtSecretGroupVersionKind = SchemeGroupVersion.WithKind(ClusterExtSecretKind)
@@ -56,7 +58,7 @@ var (
 
 // SecretStore type metadata.
 var (
-	SecretStoreKind             = reflect.TypeOf(SecretStore{}).Name()
+	SecretStoreKind             = reflect.TypeFor[SecretStore]().Name()
 	SecretStoreGroupKind        = schema.GroupKind{Group: Group, Kind: SecretStoreKind}.String()
 	SecretStoreKindAPIVersion   = SecretStoreKind + "." + SchemeGroupVersion.String()
 	SecretStoreGroupVersionKind = SchemeGroupVersion.WithKind(SecretStoreKind)
@@ -64,7 +66,7 @@ var (
 
 // ClusterSecretStore type metadata.
 var (
-	ClusterSecretStoreKind             = reflect.TypeOf(ClusterSecretStore{}).Name()
+	ClusterSecretStoreKind             = reflect.TypeFor[ClusterSecretStore]().Name()
 	ClusterSecretStoreGroupKind        = schema.GroupKind{Group: Group, Kind: ClusterSecretStoreKind}.String()
 	ClusterSecretStoreKindAPIVersion   = ClusterSecretStoreKind + "." + SchemeGroupVersion.String()
 	ClusterSecretStoreGroupVersionKind = SchemeGroupVersion.WithKind(ClusterSecretStoreKind)

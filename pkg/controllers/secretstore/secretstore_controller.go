@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 ESO Maintainer Team
+Copyright © The ESO Authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -36,7 +36,7 @@ import (
 	"github.com/external-secrets/external-secrets/pkg/controllers/secretstore/ssmetrics"
 
 	// Loading registered providers.
-	_ "github.com/external-secrets/external-secrets/pkg/provider/register"
+	_ "github.com/external-secrets/external-secrets/pkg/register"
 )
 
 // StoreReconciler reconciles a SecretStore object.

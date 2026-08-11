@@ -24,6 +24,7 @@ linters:
     - govet
     - ineffassign
     - misspell
+    - modernize # A suite of analyzers that suggest simplifications to Go code, using modern language and library features. https://golangci-lint.run/docs/linters/configuration/#modernize
     - nakedret
     - nolintlint
     - prealloc
@@ -32,6 +33,7 @@ linters:
     - unparam
     - unused
     - whitespace
+    - revive
   settings:
     goconst:
       min-len: 3
@@ -60,7 +62,7 @@ linters:
     gocyclo:
       min-complexity: 16
     goheader:
-      template-path: ./hack/boilerplate.go.txt
+      template-path: ${config-path}/hack/boilerplate.go.txt
     dupl:
       threshold: 200
     govet:
@@ -68,12 +70,17 @@ linters:
         - shadow
     lll:
       line-length: 300
-#    staticcheck:
-#      checks:
-#        - QF1008
+    #    staticcheck:
+    #      checks:
+    #        - QF1008
     misspell:
       locale: US
+    modernize:
+      disable:
+        - omitzero
   exclusions:
+    paths:
+      - runtime/template/v2/sprig
     rules:
       # Exclude some linters from running on tests files.
       - path: _test(ing)?\.go
@@ -84,12 +91,24 @@ linters:
           - gosec
           - unparam
           - lll
+          - revive
+
+      # Allow dot imports for Ginkgo and Gomega in test files
+      - path: _test\.go
+        text: "dot-imports:"
+        linters:
+          - revive
 
       # Ease some gocritic warnings on test files.
       - path: _test\.go
         text: "(unnamedResult|exitAfterDefer)"
         linters:
           - gocritic
+
+      # Exclude fake or mock packages from revive linter
+      - path: /(fake|mock)/
+        linters:
+          - revive
 
       # This is a "potential hardcoded credentials" warning. It's triggered by
       # any variable with 'secret' in the same, and thus hits a lot of false
@@ -112,7 +131,15 @@ issues:
   max-same-issues: 0
 
 formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports
+    - golines
   settings:
+    goimports:
+      local-prefixes:
+        - github.com/external-secrets/external-secrets
     golines:
       # Target maximum line length.
       # Default: 100
