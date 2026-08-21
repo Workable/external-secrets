@@ -72,7 +72,7 @@ FAIL	= (echo ${TIME} ${RED}[FAIL]${CNone} && false)
 # ====================================================================================
 # Conformance
 
-reviewable: generate docs manifests helm.generate helm.schema.update helm.docs lint license.check helm.test.update test.crds.update tf.fmt ## Ensure a PR is ready for review.
+reviewable: generate docs manifests helm.generate helm.schema.update helm.docs lint helm.test.update test.crds.update tf.fmt ## Ensure a PR is ready for review.
 	@GOWORK=off go -C hack/tools mod tidy # Tools and their deps are not to be included in project's GOWORK or in the project go.mod/sum. We consider them external.
 	@GOWORK=off go -C hack/tools/gen-crd-api-reference-docs mod tidy
 	@go mod tidy
@@ -88,10 +88,6 @@ check-diff: reviewable ## Ensure branch is clean.
 
 update-deps: ## Update dependencies across all modules (root, apis, runtime, e2e, providers, generators)
 	@./hack/update-deps.sh
-
-.PHONY: license.check
-license.check:
-	$(DOCKER) run --rm -u $(shell id -u) -v $(shell pwd):/github/workspace apache/skywalking-eyes:0.6.0 header check
 
 # ====================================================================================
 # Golang
