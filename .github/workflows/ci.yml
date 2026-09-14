@@ -58,6 +58,7 @@ jobs:
         id: setup-go
         with:
           go-version-file: "go.mod"
+          cache: false
 
       - name: Download Go modules
         if: ${{ steps.setup-go.outputs.cache-hit != 'true' }}
@@ -165,7 +166,7 @@ jobs:
           echo "image-tag=${GITHUB_REF#refs/tags/workable-}" >> $GITHUB_OUTPUT
 
       - name: Build image
-        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6.9.1
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: Dockerfile.standalone
@@ -184,10 +185,10 @@ jobs:
       - name: Push image to sre registry
         env:
           REGISTRY: us-docker.pkg.dev/sre-artifacts-20e4/gcr.io
+          IMAGE_TAG: ${{ steps.container-info.outputs.image-tag }}
         run: |
-          docker tag Workable/external-secrets:${{ steps.container-info.outputs.image-tag }} \
-            ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
-          docker push ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
+          docker tag "Workable/external-secrets:${IMAGE_TAG}" "${REGISTRY}/external-secrets:${IMAGE_TAG}"
+          docker push "${REGISTRY}/external-secrets:${IMAGE_TAG}"
 
       # DISTRIBUTION OF STAGING IMAGE
       - name: Login to staging registry
@@ -200,10 +201,10 @@ jobs:
       - name: Push image to staging registry
         env:
           REGISTRY: us-docker.pkg.dev/staging-artifacts-786a/gcr.io
+          IMAGE_TAG: ${{ steps.container-info.outputs.image-tag }}
         run: |
-          docker tag Workable/external-secrets:${{ steps.container-info.outputs.image-tag }} \
-            ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
-          docker push ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
+          docker tag "Workable/external-secrets:${IMAGE_TAG}" "${REGISTRY}/external-secrets:${IMAGE_TAG}"
+          docker push "${REGISTRY}/external-secrets:${IMAGE_TAG}"
 
       # DISTRIBUTION OF PRODUCTION IMAGE
       - name: Login to production registry
@@ -216,7 +217,7 @@ jobs:
       - name: Push image to production registry
         env:
           REGISTRY: us-docker.pkg.dev/production-artifacts-0b0d/gcr.io
+          IMAGE_TAG: ${{ steps.container-info.outputs.image-tag }}
         run: |
-          docker tag Workable/external-secrets:${{ steps.container-info.outputs.image-tag }} \
-            ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
-          docker push ${{ env.REGISTRY }}/external-secrets:${{ steps.container-info.outputs.image-tag }}
+          docker tag "Workable/external-secrets:${IMAGE_TAG}" "${REGISTRY}/external-secrets:${IMAGE_TAG}"
+          docker push "${REGISTRY}/external-secrets:${IMAGE_TAG}"
